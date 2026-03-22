@@ -277,8 +277,14 @@
                     <div class="fa-start-profile">
                       <div class="fa-avatar self large" id="fa-start-avatar"></div>
                       <div class="fa-start-fields">
-                        <label class="fa-input-label">Nickname</label>
-                        <input id="fa-nickname" maxlength="18" autocomplete="off" spellcheck="false" placeholder="Enter nickname" />
+                        <div id="fa-nickname-editor">
+                          <label class="fa-input-label">Nickname</label>
+                          <input id="fa-nickname" maxlength="18" autocomplete="off" spellcheck="false" placeholder="Enter nickname" />
+                        </div>
+                        <div class="fa-fixed-profile hidden" id="fa-fixed-profile">
+                          <div class="fa-input-label">Nickname Locked</div>
+                          <div class="fa-fixed-name" id="fa-fixed-name">Player</div>
+                        </div>
                         <div class="fa-mini-note" id="fa-nick-note">This nickname will be used for ranking and future Firebase sync.</div>
                       </div>
                     </div>
@@ -593,6 +599,20 @@
         border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); color: #f4f7ff;
         font-size: 15px; outline: none;
       }
+      .fa-fixed-profile.hidden { display: none; }
+      .fa-fixed-profile {
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,.10);
+        background: rgba(255,255,255,.05);
+      }
+      .fa-fixed-name {
+        margin-top: 2px;
+        font-size: 18px;
+        font-weight: 900;
+        color: #f4f7ff;
+        letter-spacing: .02em;
+      }
       .fa-stage-actions, .fa-overlay-actions, .fa-confirm-actions {
         display: flex; justify-content: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;
       }
@@ -781,6 +801,9 @@
     ui.reviewLine = root.querySelector('#fa-review-line');
     ui.nickInput = root.querySelector('#fa-nickname');
     ui.nickNote = root.querySelector('#fa-nick-note');
+    ui.nicknameEditor = root.querySelector('#fa-nickname-editor');
+    ui.fixedProfile = root.querySelector('#fa-fixed-profile');
+    ui.fixedName = root.querySelector('#fa-fixed-name');
     ui.selfAvatar = root.querySelector('#fa-self-avatar');
     ui.startAvatar = root.querySelector('#fa-start-avatar');
     ui.sideAvatar = root.querySelector('#fa-side-avatar');
@@ -912,6 +935,19 @@
     });
   }
 
+  function updateLobbyProfileUI() {
+    const locked = !!(state.profile && state.profile.nickname);
+    if (ui.nicknameEditor) ui.nicknameEditor.classList.toggle('hidden', locked);
+    if (ui.fixedProfile) ui.fixedProfile.classList.toggle('hidden', !locked);
+    if (ui.fixedName) ui.fixedName.textContent = locked ? state.profile.nickname : 'Player';
+    if (locked) {
+      state.lobbyConfirmed = true;
+      if (ui.nickNote) ui.nickNote.textContent = 'Nickname is locked. You can start immediately.';
+    } else if (ui.nickNote) {
+      ui.nickNote.textContent = 'This nickname will be used for ranking and future Firebase sync.';
+    }
+  }
+
   async function confirmLobbyProfile() {
     const nickname = (ui.nickInput.value || '').trim();
     if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
@@ -953,9 +989,10 @@
     saveState();
     renderLobbyStatus();
     updateAvatars();
+    updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
-    ui.nickNote.textContent = 'Confirmed. Press Game Start, or use Play Fullscreen on mobile.';
+    ui.nickNote.textContent = 'Nickname locked. Press Game Start, or use Play Fullscreen on mobile.';
     syncLobbyActions();
     syncUI();
     return true;
@@ -971,6 +1008,7 @@
     state.paused = false;
     renderLobbyStatus();
     updateAvatars();
+    updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
     closeStartScreen();
@@ -1069,7 +1107,8 @@
     ui.startScreen.classList.remove('hidden');
     state.phase = 'intro';
     state.started = false;
-    state.lobbyConfirmed = false;
+    state.lobbyConfirmed = !!(state.profile && state.profile.nickname);
+    updateLobbyProfileUI();
     renderLobbyStatus();
     syncLobbyActions();
     syncUI();
@@ -1186,6 +1225,7 @@
 
     renderLobbyStatus();
     updateAvatars();
+    updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
   }
