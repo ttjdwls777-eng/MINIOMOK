@@ -54,7 +54,8 @@
     remoteAdapter: FirebaseLeaderboardAdapter,
     leaderboardCache: [],
     fullscreenRequested: false,
-    lastResult: null
+    lastResult: null,
+    lobbyConfirmed: false
   };
 
   const ui = {};
@@ -281,7 +282,10 @@
                         <div class="fa-mini-note" id="fa-nick-note">This nickname will be used for ranking and future Firebase sync.</div>
                       </div>
                     </div>
-                    <div class="fa-stage-actions">
+                    <div class="fa-stage-actions" id="fa-lobby-confirm-actions">
+                      <button class="fa-btn primary big" id="fa-confirm-profile-btn">Confirm</button>
+                    </div>
+                    <div class="fa-stage-actions hidden" id="fa-lobby-start-actions">
                       <button class="fa-btn primary big" id="fa-save-start">Game Start</button>
                       <button class="fa-btn ghost big mobile-only" id="fa-mobile-fullscreen-btn">Play Fullscreen</button>
                     </div>
@@ -310,6 +314,11 @@
                       <button class="fa-btn ghost" id="fa-overlay-lobby-btn">Lobby</button>
                     </div>
                   </div>
+                </div>
+
+                <div class="fa-floating-game-actions hidden" id="fa-floating-game-actions">
+                  <button class="fa-btn ghost" id="fa-floating-fullscreen">Fullscreen</button>
+                  <button class="fa-btn ghost hidden" id="fa-floating-exit-fullscreen">Exit Fullscreen</button>
                 </div>
               </div>
 
@@ -543,7 +552,7 @@
         background: linear-gradient(180deg, rgba(6,10,18,.35), rgba(4,7,12,.56));
         padding: 18px;
       }
-      .fa-stage.hidden, .fa-overlay.hidden, .fa-modal.hidden { display: none; }
+      .fa-stage.hidden, .fa-overlay.hidden, .fa-modal.hidden, .fa-floating-game-actions.hidden { display: none; }
       .fa-stage-card, .fa-overlay-card, .fa-confirm-card {
         width: min(100%, 520px); padding: 24px; border-radius: 28px;
         background: linear-gradient(180deg, rgba(16,20,30,.92), rgba(9,12,19,.96));
@@ -588,6 +597,22 @@
         display: flex; justify-content: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;
       }
       .fa-stage-actions.split .fa-btn { min-width: 140px; }
+
+      .fa-floating-game-actions {
+        position: absolute;
+        right: 18px;
+        bottom: 18px;
+        z-index: 3;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .fa-floating-game-actions .fa-btn {
+        min-width: 152px;
+        backdrop-filter: blur(12px);
+        background: rgba(11,15,24,.66);
+      }
+
       .fa-bottom {
         display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 8px 2px;
       }
@@ -709,6 +734,8 @@
         .fa-main { grid-template-columns: 1fr; }
       }
       @media (max-width: 740px) {
+        .fa-floating-game-actions { right: 12px; bottom: 12px; }
+        .fa-floating-game-actions .fa-btn { min-width: 138px; padding: 11px 14px; }
         .mobile-only { display: inline-flex; }
         .fa-topbar { padding: 14px; }
         .fa-main { padding: 6px 14px 18px; gap: 14px; }
@@ -773,10 +800,17 @@
     ui.lobbyResult = root.querySelector('#fa-lobby-result');
     ui.lobbyResultTitle = root.querySelector('#fa-lobby-result-title');
     ui.lobbyResultText = root.querySelector('#fa-lobby-result-text');
+    ui.lobbyConfirmActions = root.querySelector('#fa-lobby-confirm-actions');
+    ui.lobbyStartActions = root.querySelector('#fa-lobby-start-actions');
+    ui.confirmProfileBtn = root.querySelector('#fa-confirm-profile-btn');
+    ui.floatingGameActions = root.querySelector('#fa-floating-game-actions');
+    ui.floatingFullscreen = root.querySelector('#fa-floating-fullscreen');
+    ui.floatingExitFullscreen = root.querySelector('#fa-floating-exit-fullscreen');
 
     root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
+    root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
     root.querySelector('#fa-rematch-btn').addEventListener('click', () => { closeOverlay(); prepareMatch(); });
     root.querySelector('#fa-overlay-lobby-btn').addEventListener('click', backToLobby);
@@ -788,12 +822,14 @@
     root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
     root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
     root.querySelector('#fa-mobile-fullscreen-btn').addEventListener('click', () => { requestMobileFullscreen(true); startGameFromLobby(); });
+    root.querySelector('#fa-floating-fullscreen').addEventListener('click', () => requestMobileFullscreen(true));
+    root.querySelector('#fa-floating-exit-fullscreen').addEventListener('click', exitMobileFullscreen);
 
     ui.board.addEventListener('click', onBoardClick);
     ui.board.addEventListener('dblclick', e => e.preventDefault());
     ui.board.addEventListener('touchend', preventDoubleTapZoom, { passive: false });
     ui.nickInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') startGameFromLobby();
+      if (e.key === 'Enter') confirmLobbyProfile();
     });
     ui.leaderModal.addEventListener('click', e => {
       if (e.target === ui.leaderModal) closeLeaderboard();
@@ -806,6 +842,7 @@
       updateMobileMode();
       renderBoard();
     });
+    document.addEventListener('fullscreenchange', updateFullscreenButtons);
     document.addEventListener('pointerdown', initAudio, { once: true });
   }
 
@@ -875,11 +912,13 @@
     });
   }
 
-  async function startGameFromLobby() {
+  async function confirmLobbyProfile() {
     const nickname = (ui.nickInput.value || '').trim();
     if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
       ui.nickNote.textContent = 'Use 2 to 18 letters or numbers.';
-      return;
+      state.lobbyConfirmed = false;
+      syncLobbyActions();
+      return false;
     }
 
     const existingProfile = state.profile;
@@ -899,24 +938,60 @@
       };
     } else {
       state.profile.nickname = nickname;
+      state.profile.avatar = state.profile.avatar || getAvatarBySeed(state.profile.id);
     }
 
     const duplicated = await state.remoteAdapter.nameExists(state.profile.nickname, state.profile.id);
     if (duplicated) {
       ui.nickNote.textContent = 'Nickname already exists on the ladder.';
-      return;
+      state.lobbyConfirmed = false;
+      syncLobbyActions();
+      return false;
     }
 
-    state.started = true;
-    state.phase = 'playing';
-    state.paused = false;
+    state.lobbyConfirmed = true;
     saveState();
     renderLobbyStatus();
     updateAvatars();
+    syncLobbyActions();
+    updateFullscreenButtons();
+    ui.nickNote.textContent = 'Confirmed. Press Game Start, or use Play Fullscreen on mobile.';
+    syncLobbyActions();
+    syncUI();
+    return true;
+  }
+
+  async function startGameFromLobby() {
+    if (!state.lobbyConfirmed) {
+      const ok = await confirmLobbyProfile();
+      if (!ok) return;
+    }
+    state.started = true;
+    state.phase = 'playing';
+    state.paused = false;
+    renderLobbyStatus();
+    updateAvatars();
+    syncLobbyActions();
+    updateFullscreenButtons();
     closeStartScreen();
     prepareMatch();
     requestMobileFullscreen(state.fullscreenRequested);
     syncUI();
+  }
+
+  function syncLobbyActions() {
+    if (!ui.lobbyConfirmActions || !ui.lobbyStartActions) return;
+    ui.lobbyConfirmActions.classList.toggle('hidden', !!state.lobbyConfirmed);
+    ui.lobbyStartActions.classList.toggle('hidden', !state.lobbyConfirmed);
+  }
+
+  function updateFullscreenButtons() {
+    if (!ui.floatingGameActions) return;
+    const showFloating = state.phase === 'playing' && !state.gameOver && state.started;
+    ui.floatingGameActions.classList.toggle('hidden', !showFloating);
+    const isFs = !!document.fullscreenElement || document.body.classList.contains('fa-mobile-fullscreen');
+    ui.floatingFullscreen.classList.toggle('hidden', isFs);
+    ui.floatingExitFullscreen.classList.toggle('hidden', !isFs);
   }
 
   function handleNewMatch() {
@@ -978,6 +1053,7 @@
   }
 
   function backToLobby() {
+    state.lobbyConfirmed = !!(state.profile && state.profile.nickname);
     state.paused = false;
     state.started = false;
     state.phase = 'intro';
@@ -993,7 +1069,9 @@
     ui.startScreen.classList.remove('hidden');
     state.phase = 'intro';
     state.started = false;
+    state.lobbyConfirmed = false;
     renderLobbyStatus();
+    syncLobbyActions();
     syncUI();
   }
 
@@ -1096,6 +1174,8 @@
     ui.scaleLine.textContent = getAiTitle();
     ui.reviewLine.textContent = state.review.length ? `${state.reviewIndex + 1} / ${state.review.length}` : 'Ready';
     ui.connectionNote.textContent = state.remoteAdapter.mode === 'local-ready' ? 'Local ladder mode · Firebase ready' : 'Firebase connected';
+    syncLobbyActions();
+    updateFullscreenButtons();
 
     if (state.profile) {
       ui.nickInput.value = state.profile.nickname || '';
@@ -1106,6 +1186,8 @@
 
     renderLobbyStatus();
     updateAvatars();
+    syncLobbyActions();
+    updateFullscreenButtons();
   }
 
   function updateAvatars() {
@@ -1809,6 +1891,7 @@
     if (elem && elem.requestFullscreen) {
       elem.requestFullscreen().catch(() => {});
     }
+    updateFullscreenButtons();
   }
 
   function exitMobileFullscreen() {
@@ -1817,12 +1900,14 @@
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(() => {});
     }
+    updateFullscreenButtons();
   }
 
   function updateMobileMode() {
     const should = window.innerWidth <= 740 && state.started && state.phase !== 'intro' && state.fullscreenRequested;
     if (should) document.body.classList.add('fa-mobile-fullscreen');
     else document.body.classList.remove('fa-mobile-fullscreen');
+    updateFullscreenButtons();
   }
 
   async function boot() {
