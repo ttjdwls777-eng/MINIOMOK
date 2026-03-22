@@ -1,9 +1,8 @@
 
 (() => {
   const APP_NAME = 'FA OMOK';
-  const STORAGE_KEY = 'fa_omok_state_v2';
-  const PROFILE_KEY = 'fa_omok_profile_v2';
-  const LEADERBOARD_KEY = 'fa_omok_board_v2';
+  const STORAGE_KEY = 'fa_omok_state_v1';
+  const LEADERBOARD_KEY = 'fa_omok_board_v1';
   const BOARD_SIZE = 15;
   const CELL = 44;
   const PADDING = 36;
@@ -13,22 +12,6 @@
   const EMPTY = 0;
   const STAR_POINTS = [[3,3],[3,7],[3,11],[7,3],[7,7],[7,11],[11,3],[11,7],[11,11]];
   const RANKS = ['10k','9k','8k','7k','6k','5k','4k','3k','2k','1k','1d','2d','3d','4d','5d','6d','7d','8d','9d'];
-  const DEFAULT_AVATARS = ['♞','♜','♛','☯','✦','⚔','♟','◈'];
-
-  const FirebaseLeaderboardAdapter = {
-    mode: 'local-ready',
-    async fetchTop(limit = 50) {
-      return getLocalLeaderboard().slice(0, limit);
-    },
-    async saveEntry(entry) {
-      upsertLocalLeaderboard(entry);
-      return true;
-    },
-    async nameExists(nickname, excludeId) {
-      const lower = String(nickname || '').trim().toLowerCase();
-      return getLocalLeaderboard().some(v => String(v.nickname || '').trim().toLowerCase() === lower && v.id !== excludeId);
-    }
-  };
 
   const state = {
     profile: null,
@@ -40,20 +23,13 @@
     pendingLock: false,
     moveCount: 0,
     streak: 0,
-    bestStreak: 0,
     totalWins: 0,
     totalLosses: 0,
     totalGames: 0,
     review: [],
     reviewIndex: 0,
-    soundsReady: false,
-    started: false,
-    paused: false,
-    phase: 'intro',
-    winningLine: [],
-    remoteAdapter: FirebaseLeaderboardAdapter,
-    leaderboardCache: [],
-    fullscreenRequested: false
+    nicknameLocked: false,
+    soundsReady: false
   };
 
   const ui = {};
@@ -78,48 +54,73 @@
     }
   }
 
-  function getSavedProfile() {
-    try {
-      return JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null');
-    } catch {
-      return null;
-    }
-  }
-
   function saveState() {
     const payload = {
+      profile: state.profile,
       streak: state.streak,
-      bestStreak: state.bestStreak,
       totalWins: state.totalWins,
       totalLosses: state.totalLosses,
-      totalGames: state.totalGames
+      totalGames: state.totalGames,
+      nicknameLocked: state.nicknameLocked
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    if (state.profile) localStorage.setItem(PROFILE_KEY, JSON.stringify(state.profile));
   }
 
-  function getLocalLeaderboard() {
+  function seededLeaderboard() {
+    const names = [
+      'Rook','Helix','Vanta','Nova','Aster','Luma','Orbit','Iris','Rune','Axis',
+      'Nexus','Pike','Sora','Riven','Haze','Kairo','Vega','Nyx','Aero','Lynx',
+      'Blaze','Cipher','Onyx','Drift','Flare','Zen','Miro','Arden','Echo','Frost',
+      'Slate','Lux','Halo','Quill','Dune','Volt','Aqua','Jett','Noir','Kite',
+      'Zeta','Prism','Sol','Bram','Theo','Moss','Crow','Axiom','Pulse','Ivory'
+    ];
+    const board = [];
+    for (let i = 0; i < 50; i++) {
+      const totalWins = Math.max(0, 88 - i * 2 + (i % 3));
+      board.push({
+        id: uid(),
+        nickname: names[i] || ('Player ' + (i + 1)),
+        totalWins,
+        totalLosses: Math.max(0, Math.floor(totalWins * 0.42)),
+        totalGames: totalWins + Math.max(0, Math.floor(totalWins * 0.42)),
+        rank: getRankFromWins(totalWins),
+        streak: Math.max(0, Math.floor(totalWins / 5) % 7)
+      });
+    }
+    return board;
+  }
+
+  function getLeaderboard() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || '[]');
-      if (Array.isArray(parsed)) {
-        return parsed.filter(v => v && v.id && v.nickname && Number(v.totalGames || 0) > 0).sort(compareLeaderboard);
-      }
+      const parsed = JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || 'null');
+      if (Array.isArray(parsed) && parsed.length) return parsed;
     } catch {}
-    return [];
+    const seed = seededLeaderboard();
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(seed));
+    return seed;
   }
 
-  function setLocalLeaderboard(entries) {
-    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries.slice(0, 500)));
+  function setLeaderboard(entries) {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries));
   }
 
-  function upsertLocalLeaderboard(entry) {
-    const board = getLocalLeaderboard();
-    const idx = board.findIndex(v => v.id === entry.id);
+  function upsertProfileToLeaderboard() {
+    if (!state.profile) return;
+    const board = getLeaderboard();
+    const idx = board.findIndex(v => v.id === state.profile.id);
+    const entry = {
+      id: state.profile.id,
+      nickname: state.profile.nickname,
+      totalWins: state.totalWins,
+      totalLosses: state.totalLosses,
+      totalGames: state.totalGames,
+      rank: getRankFromWins(state.totalWins),
+      streak: state.streak
+    };
     if (idx >= 0) board[idx] = entry;
     else board.push(entry);
     board.sort(compareLeaderboard);
-    setLocalLeaderboard(board);
-    state.leaderboardCache = board.slice(0, 50);
+    setLeaderboard(board.slice(0, 300));
   }
 
   function compareLeaderboard(a, b) {
@@ -127,14 +128,12 @@
     const rb = rankIndex(b.rank);
     if (ra !== rb) return rb - ra;
     if ((b.totalWins || 0) !== (a.totalWins || 0)) return (b.totalWins || 0) - (a.totalWins || 0);
-    if ((b.bestStreak || 0) !== (a.bestStreak || 0)) return (b.bestStreak || 0) - (a.bestStreak || 0);
-    if ((b.totalGames || 0) !== (a.totalGames || 0)) return (b.totalGames || 0) - (a.totalGames || 0);
-    return String(a.nickname || '').localeCompare(String(b.nickname || ''));
+    if ((b.streak || 0) !== (a.streak || 0)) return (b.streak || 0) - (a.streak || 0);
+    return String(a.nickname).localeCompare(String(b.nickname));
   }
 
   function rankIndex(rank) {
-    const idx = RANKS.indexOf(rank);
-    return idx < 0 ? 0 : idx;
+    return RANKS.indexOf(rank);
   }
 
   function getRankFromWins(wins) {
@@ -149,123 +148,83 @@
     const nextBase = Math.min((idx + 1) * 5, (RANKS.length - 1) * 5);
     const current = wins - currentBase;
     const need = idx >= RANKS.length - 1 ? 0 : Math.max(0, nextBase - wins);
-    return { rank, current, need, max: 5 };
-  }
-
-  function getAvatarBySeed(seed) {
-    if (!seed) return DEFAULT_AVATARS[0];
-    let n = 0;
-    const s = String(seed);
-    for (let i = 0; i < s.length; i++) n += s.charCodeAt(i);
-    return DEFAULT_AVATARS[n % DEFAULT_AVATARS.length];
+    return { rank, current, need, max: idx >= RANKS.length - 1 ? 5 : 5 };
   }
 
   function restore() {
     const saved = getSavedState();
-    const profile = getSavedProfile();
     if (saved) {
+      state.profile = saved.profile || null;
       state.streak = saved.streak || 0;
-      state.bestStreak = saved.bestStreak || 0;
       state.totalWins = saved.totalWins || 0;
       state.totalLosses = saved.totalLosses || 0;
       state.totalGames = saved.totalGames || 0;
+      state.nicknameLocked = !!saved.nicknameLocked;
     }
-    if (profile && profile.id && profile.nickname) {
-      state.profile = profile;
+    if (state.profile) {
       state.profile.rank = getRankFromWins(state.totalWins);
-      state.profile.avatar = state.profile.avatar || getAvatarBySeed(profile.id);
+      upsertProfileToLeaderboard();
     }
-    state.leaderboardCache = getLocalLeaderboard().slice(0, 50);
+  }
+
+
+  function ensureViewportLock() {
+    let meta = document.querySelector('meta[name="viewport"]');
+    const content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'viewport';
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', content);
   }
 
   function createShell() {
     document.body.style.margin = '0';
-    document.body.style.background = '#05070c';
+    document.body.style.background = '#06090f';
     document.body.style.fontFamily = 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
-    document.body.style.color = '#eef3ff';
-    document.body.innerHTML = '';
+    document.body.style.color = '#e8edf7';
 
     const root = document.createElement('div');
     root.id = 'fa-omok-app';
     root.innerHTML = `
       <div class="fa-wrap">
         <div class="fa-bg"></div>
-        <div class="fa-grid"></div>
-
         <div class="fa-topbar">
           <div class="fa-brand">
             <div class="fa-brand-badge">FA</div>
             <div>
               <div class="fa-brand-title">${APP_NAME}</div>
-              <div class="fa-brand-sub">Prestige Gomoku Arena</div>
+              <div class="fa-brand-sub">Ranked AI Arena</div>
             </div>
           </div>
-          <div class="fa-top-actions">
-            <button class="fa-btn ghost" id="fa-open-leaderboard">Leaderboard</button>
-            <button class="fa-btn ghost" id="fa-pause-top-btn">Pause</button>
-          </div>
+          <button class="fa-btn ghost" id="fa-open-leaderboard">Leaderboard</button>
         </div>
-
         <div class="fa-main">
           <div class="fa-left">
             <div class="fa-panel hero">
               <div class="fa-status-row">
                 <div class="fa-player-card">
-                  <div class="fa-avatar self" id="fa-self-avatar"></div>
+                  <div class="fa-avatar self"></div>
                   <div class="fa-player-meta">
                     <div class="fa-name" id="fa-player-name">Guest</div>
                     <div class="fa-rank" id="fa-player-rank">10k</div>
                   </div>
                 </div>
                 <div class="fa-center-vs">
-                  <div class="fa-turn" id="fa-turn-label">Press Start</div>
+                  <div class="fa-turn" id="fa-turn-label">Your Move</div>
                   <div class="fa-streak" id="fa-streak-label">Win Streak 0</div>
                 </div>
                 <div class="fa-player-card ai">
                   <div class="fa-player-meta right">
                     <div class="fa-name">FA AI</div>
-                    <div class="fa-rank" id="fa-ai-rank">Calm</div>
+                    <div class="fa-rank" id="fa-ai-rank">Adaptive</div>
                   </div>
                   <div class="fa-avatar bot"></div>
                 </div>
               </div>
-
-              <div class="fa-board-wrap" id="fa-board-wrap">
+              <div class="fa-board-wrap">
                 <canvas id="fa-board" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}"></canvas>
-
-                <div class="fa-stage fa-intro" id="fa-start-screen">
-                  <div class="fa-stage-card">
-                    <div class="fa-stage-eyebrow">RANKED MATCH</div>
-                    <div class="fa-stage-title">Enter the Arena</div>
-                    <div class="fa-stage-text">
-                      Create your name, step onto the board, and climb the rank ladder.
-                    </div>
-                    <div class="fa-start-profile">
-                      <div class="fa-avatar self large" id="fa-start-avatar"></div>
-                      <div class="fa-start-fields">
-                        <label class="fa-input-label">Nickname</label>
-                        <input id="fa-nickname" maxlength="18" autocomplete="off" spellcheck="false" placeholder="Enter nickname" />
-                        <div class="fa-mini-note" id="fa-nick-note">This nickname will be used for ranking and future Firebase sync.</div>
-                      </div>
-                    </div>
-                    <div class="fa-stage-actions">
-                      <button class="fa-btn primary big" id="fa-save-start">Start Game</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="fa-stage hidden" id="fa-pause-screen">
-                  <div class="fa-stage-card compact">
-                    <div class="fa-stage-eyebrow">MATCH PAUSED</div>
-                    <div class="fa-stage-title" id="fa-pause-title">Game Paused</div>
-                    <div class="fa-stage-text" id="fa-pause-text">Return to the board whenever you are ready.</div>
-                    <div class="fa-stage-actions split">
-                      <button class="fa-btn primary" id="fa-resume-btn">Resume</button>
-                      <button class="fa-btn" id="fa-back-lobby-btn">Back to Lobby</button>
-                    </div>
-                  </div>
-                </div>
-
                 <div class="fa-overlay hidden" id="fa-overlay">
                   <div class="fa-overlay-card">
                     <div class="fa-overlay-title" id="fa-overlay-title">Victory</div>
@@ -277,7 +236,6 @@
                   </div>
                 </div>
               </div>
-
               <div class="fa-bottom">
                 <div class="fa-progress-box">
                   <div class="fa-progress-top">
@@ -287,27 +245,22 @@
                   <div class="fa-progress-bar"><div id="fa-progress-fill"></div></div>
                 </div>
                 <div class="fa-actions">
-                  <button class="fa-btn" id="fa-newgame-btn">New Match</button>
-                  <button class="fa-btn" id="fa-pause-btn">Pause</button>
-                  <button class="fa-btn danger" id="fa-reset-score-btn">Reset Career</button>
+                  <button class="fa-btn" id="fa-newgame-btn">New Game</button>
+                  <button class="fa-btn" id="fa-reset-score-btn">Reset Score</button>
                 </div>
               </div>
             </div>
           </div>
-
           <div class="fa-right">
-            <div class="fa-panel setup">
-              <div class="fa-panel-title">Profile</div>
-              <div class="fa-panel-sub">Leaderboard-ready profile for local play and Firebase sync.</div>
-              <div class="fa-profile-inline">
-                <div class="fa-avatar self" id="fa-side-avatar"></div>
-                <div>
-                  <div class="fa-name" id="fa-side-name">Guest</div>
-                  <div class="fa-mini-note" id="fa-connection-note">Local ladder mode</div>
-                </div>
+            <div class="fa-panel setup" id="fa-profile-panel">
+              <div class="fa-panel-title">Player ID</div>
+              <div class="fa-panel-sub">Set once and lock forever</div>
+              <div class="fa-input-wrap">
+                <input id="fa-nickname" maxlength="18" autocomplete="off" spellcheck="false" placeholder="Enter nickname" />
+                <button class="fa-btn primary" id="fa-save-nick">Lock</button>
               </div>
+              <div class="fa-mini-note" id="fa-nick-note">Nickname can only be set once</div>
             </div>
-
             <div class="fa-panel stats">
               <div class="fa-panel-title">Career</div>
               <div class="fa-stats-grid">
@@ -317,7 +270,6 @@
                 <div class="fa-stat-box"><span>Best Streak</span><strong id="fa-best-tier">0</strong></div>
               </div>
             </div>
-
             <div class="fa-panel info">
               <div class="fa-panel-title">Arena</div>
               <div class="fa-info-box">
@@ -325,45 +277,28 @@
                 <div class="fa-info-line"><span>Rule</span><strong>Five in a row</strong></div>
                 <div class="fa-info-line"><span>Scale</span><strong id="fa-scale-line">Calm</strong></div>
                 <div class="fa-info-line"><span>Review</span><strong id="fa-review-line">Ready</strong></div>
-                <div class="fa-info-line"><span>Ranking</span><strong>Top 50 actual players</strong></div>
               </div>
             </div>
-
             <div class="fa-panel lb">
               <div class="fa-panel-title">Top 50</div>
-              <div class="fa-panel-sub">Only profiles that actually played are listed.</div>
               <div class="fa-leader-scroll" id="fa-leader-preview"></div>
             </div>
           </div>
         </div>
-
         <div class="fa-modal hidden" id="fa-leaderboard-modal">
           <div class="fa-modal-card">
             <div class="fa-modal-head">
               <div>
                 <div class="fa-modal-title">Leaderboard</div>
-                <div class="fa-modal-sub">Ranked by grade, wins, and best streak</div>
+                <div class="fa-modal-sub">Top 50 ranked players</div>
               </div>
               <button class="fa-btn" id="fa-close-leaderboard">Close</button>
             </div>
             <div class="fa-modal-body" id="fa-leaderboard-list"></div>
           </div>
         </div>
-
-        <div class="fa-modal hidden" id="fa-confirm-modal">
-          <div class="fa-confirm-card">
-            <div class="fa-confirm-icon">◆</div>
-            <div class="fa-confirm-title" id="fa-confirm-title">Reset Career</div>
-            <div class="fa-confirm-text" id="fa-confirm-text">Your wins, losses, and streak will be cleared.</div>
-            <div class="fa-confirm-actions">
-              <button class="fa-btn" id="fa-confirm-cancel">Cancel</button>
-              <button class="fa-btn primary" id="fa-confirm-ok">Confirm</button>
-            </div>
-          </div>
-        </div>
       </div>
     `;
-
     const style = document.createElement('style');
     style.textContent = `
       :root {
@@ -373,55 +308,43 @@
         --gold: #d5b26c;
         --gold2: #f1d598;
         --green: #8dcf65;
-        --danger: #ff846d;
-        --shadow: 0 24px 70px rgba(0,0,0,.46);
+        --shadow: 0 20px 60px rgba(0,0,0,.45);
       }
-      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-      html, body { min-height: 100%; }
+      * { box-sizing: border-box; }
       .fa-wrap { min-height: 100vh; position: relative; overflow: hidden; }
       .fa-bg {
         position: fixed; inset: 0;
         background:
-          radial-gradient(circle at 15% 15%, rgba(246,204,119,.16), transparent 26%),
-          radial-gradient(circle at 85% 10%, rgba(74,112,255,.17), transparent 24%),
-          radial-gradient(circle at 70% 80%, rgba(82,214,154,.12), transparent 28%),
-          linear-gradient(180deg, #09101a 0%, #0a1018 40%, #070b12 100%);
-        z-index: 0;
-      }
-      .fa-grid {
-        position: fixed; inset: 0; pointer-events: none;
-        background-image:
-          linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
-        background-size: 34px 34px;
-        mask-image: radial-gradient(circle at center, rgba(0,0,0,.7), transparent 85%);
+          radial-gradient(circle at 20% 20%, rgba(219,171,89,.17), transparent 28%),
+          radial-gradient(circle at 80% 0%, rgba(75,110,255,.18), transparent 24%),
+          radial-gradient(circle at 80% 70%, rgba(61,170,128,.16), transparent 28%),
+          linear-gradient(180deg, #0a1018 0%, #0b1220 45%, #091019 100%);
         z-index: 0;
       }
       .fa-topbar, .fa-main { position: relative; z-index: 1; }
       .fa-topbar {
-        max-width: 1440px; margin: 0 auto; padding: 18px 22px;
-        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        max-width: 1400px; margin: 0 auto; padding: 18px 22px;
+        display: flex; align-items: center; justify-content: space-between;
       }
-      .fa-top-actions { display: flex; gap: 10px; }
       .fa-brand { display: flex; align-items: center; gap: 14px; }
       .fa-brand-badge {
-        width: 52px; height: 52px; border-radius: 16px;
+        width: 48px; height: 48px; border-radius: 14px;
         display: grid; place-items: center;
         background: linear-gradient(145deg, rgba(244,210,138,.95), rgba(166,128,59,.95));
         color: #101114; font-weight: 900; letter-spacing: .06em;
-        box-shadow: 0 12px 28px rgba(213,178,108,.35), inset 0 1px 2px rgba(255,255,255,.55);
+        box-shadow: 0 10px 28px rgba(213,178,108,.35), inset 0 1px 2px rgba(255,255,255,.55);
       }
-      .fa-brand-title { font-size: 22px; font-weight: 900; letter-spacing: .05em; }
-      .fa-brand-sub { font-size: 12px; color: var(--muted); letter-spacing: .18em; text-transform: uppercase; }
+      .fa-brand-title { font-size: 20px; font-weight: 800; letter-spacing: .04em; }
+      .fa-brand-sub { font-size: 12px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; }
       .fa-main {
-        max-width: 1440px; margin: 0 auto; padding: 8px 22px 28px;
-        display: grid; grid-template-columns: minmax(0, 1.15fr) 380px; gap: 22px;
+        max-width: 1400px; margin: 0 auto; padding: 8px 22px 28px;
+        display: grid; grid-template-columns: 1.1fr 380px; gap: 22px;
       }
       .fa-panel {
-        background: linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.04));
+        background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04));
         border: 1px solid var(--line);
         box-shadow: var(--shadow);
-        border-radius: 26px;
+        border-radius: 24px;
         backdrop-filter: blur(18px);
       }
       .hero { padding: 18px; }
@@ -431,112 +354,54 @@
       }
       .fa-player-card {
         display: flex; align-items: center; gap: 12px;
-        background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 20px; padding: 12px 14px;
+        background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 12px 14px;
       }
       .fa-player-card.ai { justify-content: flex-end; }
       .fa-player-meta.right { text-align: right; }
       .fa-avatar {
-        width: 54px; height: 54px; border-radius: 17px;
+        width: 52px; height: 52px; border-radius: 16px;
         background: linear-gradient(145deg, rgba(255,255,255,.22), rgba(255,255,255,.05));
         border: 1px solid rgba(255,255,255,.12);
         position: relative;
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-        color: #101318;
-        font-weight: 900;
-        font-size: 22px;
       }
-      .fa-avatar.large { width: 72px; height: 72px; font-size: 30px; }
       .fa-avatar.self::before, .fa-avatar.bot::before {
         content: '';
-        position: absolute; inset: 0;
-        background:
-          radial-gradient(circle at 35% 30%, rgba(255,255,255,.92), rgba(255,255,255,.18) 26%, transparent 27%),
-          linear-gradient(145deg, rgba(236,221,187,.95), rgba(157,174,214,.28));
+        position: absolute; inset: 8px; border-radius: 12px;
+        background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.92), rgba(255,255,255,.22) 30%, transparent 31%),
+                    linear-gradient(145deg, rgba(227,233,245,.9), rgba(117,145,196,.4));
       }
       .fa-avatar.bot::before {
-        background:
-          radial-gradient(circle at 35% 30%, rgba(255,255,255,.68), rgba(255,255,255,.12) 26%, transparent 27%),
-          linear-gradient(145deg, rgba(38,42,65,.95), rgba(164,176,206,.52));
+        background: radial-gradient(circle at 35% 30%, rgba(255,255,255,.65), rgba(255,255,255,.18) 28%, transparent 29%),
+                    linear-gradient(145deg, rgba(36,40,62,.9), rgba(164,176,206,.5));
       }
-      .fa-avatar::after {
-        content: attr(data-avatar);
-        position: relative;
-        z-index: 1;
-      }
-      .fa-name { font-size: 16px; font-weight: 800; }
+      .fa-name { font-size: 16px; font-weight: 700; }
       .fa-rank { font-size: 13px; color: var(--gold2); margin-top: 2px; }
       .fa-center-vs { text-align: center; padding: 0 8px; }
-      .fa-turn { font-weight: 900; font-size: 18px; letter-spacing: .02em; }
+      .fa-turn { font-weight: 800; font-size: 18px; }
       .fa-streak { font-size: 13px; color: var(--muted); margin-top: 4px; }
-
       .fa-board-wrap {
         position: relative; width: 100%;
         display: flex; justify-content: center; align-items: center;
-        padding: 14px 8px 10px; min-height: 720px;
-        border-radius: 26px;
-        overflow: hidden;
-        background:
-          linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,0)),
-          radial-gradient(circle at center, rgba(255,255,255,.04), transparent 70%);
-      }
-      .fa-board-wrap::before {
-        content: '';
-        position: absolute; inset: 0;
-        background:
-          radial-gradient(circle at 20% 15%, rgba(246,204,119,.08), transparent 18%),
-          radial-gradient(circle at 80% 20%, rgba(74,112,255,.08), transparent 18%),
-          radial-gradient(circle at 75% 85%, rgba(82,214,154,.08), transparent 18%);
-        pointer-events: none;
+        padding: 14px 8px 10px;
       }
       #fa-board {
         width: min(100%, 820px); height: auto; display: block;
         border-radius: 24px; box-shadow: 0 25px 70px rgba(0,0,0,.4);
         background: #d8bc80;
       }
-
-      .fa-stage, .fa-overlay {
+      .fa-overlay {
         position: absolute; inset: 0; display: grid; place-items: center;
-        background: linear-gradient(180deg, rgba(6,10,18,.35), rgba(4,7,12,.56));
-        padding: 18px;
+        background: rgba(4,7,12,.18);
       }
-      .fa-stage.hidden, .fa-overlay.hidden, .fa-modal.hidden { display: none; }
-      .fa-stage-card, .fa-overlay-card, .fa-confirm-card {
-        width: min(100%, 520px); padding: 24px; border-radius: 28px;
-        background: linear-gradient(180deg, rgba(16,20,30,.92), rgba(9,12,19,.96));
-        border: 1px solid rgba(255,255,255,.09); box-shadow: var(--shadow);
-        text-align: center;
+      .fa-overlay.hidden, .fa-modal.hidden { display: none; }
+      .fa-overlay-card {
+        width: min(92%, 420px); padding: 22px; border-radius: 24px;
+        background: linear-gradient(180deg, rgba(17,20,28,.9), rgba(12,14,20,.94));
+        border: 1px solid rgba(255,255,255,.08); box-shadow: var(--shadow); text-align: center;
       }
-      .fa-stage-card.compact { width: min(100%, 420px); }
-      .fa-stage-eyebrow {
-        color: var(--gold2); font-size: 12px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase;
-      }
-      .fa-stage-title, .fa-overlay-title, .fa-confirm-title {
-        font-size: 30px; font-weight: 900; letter-spacing: .03em; margin-top: 10px;
-      }
-      .fa-stage-text, .fa-overlay-text, .fa-confirm-text {
-        font-size: 14px; color: var(--muted); margin-top: 12px; line-height: 1.6;
-      }
-      .fa-start-profile {
-        margin-top: 18px; display: flex; align-items: center; gap: 16px;
-        padding: 16px; border-radius: 22px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.04);
-        text-align: left;
-      }
-      .fa-start-fields { flex: 1; min-width: 0; }
-      .fa-input-label {
-        display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .16em;
-        color: var(--muted); margin-bottom: 8px;
-      }
-      #fa-nickname {
-        width: 100%; height: 52px; border-radius: 16px; padding: 0 16px;
-        border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); color: #f4f7ff;
-        font-size: 15px; outline: none;
-      }
-      .fa-stage-actions, .fa-overlay-actions, .fa-confirm-actions {
-        display: flex; justify-content: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;
-      }
-      .fa-stage-actions.split .fa-btn { min-width: 140px; }
+      .fa-overlay-title { font-size: 28px; font-weight: 900; letter-spacing: .04em; }
+      .fa-overlay-text { font-size: 14px; color: var(--muted); margin-top: 10px; line-height: 1.55; }
+      .fa-overlay-actions { display: flex; justify-content: center; gap: 12px; margin-top: 18px; }
       .fa-bottom {
         display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 8px 2px;
       }
@@ -551,27 +416,30 @@
         border-radius: 999px;
         transition: width .35s ease;
       }
-      .fa-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+      .fa-actions { display: flex; gap: 10px; }
       .fa-btn {
         appearance: none; border: 1px solid rgba(255,255,255,.12); outline: none;
         background: rgba(255,255,255,.06); color: #ecf2ff; border-radius: 16px; padding: 12px 16px;
-        font-weight: 800; cursor: pointer; transition: .2s ease; box-shadow: 0 10px 24px rgba(0,0,0,.18);
+        font-weight: 700; cursor: pointer; transition: .2s ease; box-shadow: 0 10px 24px rgba(0,0,0,.18);
       }
       .fa-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,.08); }
       .fa-btn.primary {
         background: linear-gradient(145deg, rgba(214,180,109,.98), rgba(126,98,43,.98));
         color: #121316; border-color: rgba(255,230,181,.36);
       }
-      .fa-btn.danger { border-color: rgba(255,132,109,.28); color: #ffd3c8; }
       .fa-btn.ghost { background: rgba(255,255,255,.03); }
-      .fa-btn.big { min-width: 180px; padding: 14px 20px; }
-      .fa-panel-title { font-weight: 900; font-size: 18px; }
+      .fa-panel-title { font-weight: 800; font-size: 18px; }
       .fa-panel-sub, .fa-mini-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
-      .fa-profile-inline {
-        margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
-        background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 18px;
+      .fa-input-wrap { display: flex; gap: 10px; margin-top: 16px; }
+      #fa-nickname {
+        flex: 1; min-width: 0; height: 50px; border-radius: 16px; padding: 0 16px;
+        border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); color: #f4f7ff;
+        font-size: 15px; outline: none;
       }
-      .fa-stats-grid { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      #fa-nickname:disabled { opacity: .55; }
+      .fa-stats-grid {
+        margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      }
       .fa-stat-box, .fa-info-box { background: rgba(255,255,255,.04); border-radius: 18px; border: 1px solid rgba(255,255,255,.07); }
       .fa-stat-box { padding: 14px; }
       .fa-stat-box span { display: block; color: var(--muted); font-size: 13px; }
@@ -585,7 +453,9 @@
         margin-top: 12px; max-height: 484px; overflow: auto; padding-right: 4px;
       }
       .fa-leader-scroll::-webkit-scrollbar, .fa-modal-body::-webkit-scrollbar { width: 10px; }
-      .fa-leader-scroll::-webkit-scrollbar-thumb, .fa-modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 999px; }
+      .fa-leader-scroll::-webkit-scrollbar-thumb, .fa-modal-body::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,.14); border-radius: 999px;
+      }
       .fa-rank-row {
         display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center;
         padding: 12px 12px; border-radius: 18px; margin-bottom: 10px; background: rgba(255,255,255,.04);
@@ -603,7 +473,7 @@
         background: rgba(213,178,108,.14); color: #f0d79d; font-weight: 800; border: 1px solid rgba(213,178,108,.24);
       }
       .fa-modal {
-        position: fixed; inset: 0; background: rgba(3,6,12,.64); display: grid; place-items: center; padding: 22px; z-index: 10;
+        position: fixed; inset: 0; background: rgba(3,6,12,.56); display: grid; place-items: center; padding: 22px; z-index: 4;
       }
       .fa-modal-card {
         width: min(100%, 860px); max-height: min(88vh, 940px); border-radius: 28px;
@@ -617,68 +487,31 @@
       .fa-modal-title { font-weight: 900; font-size: 24px; }
       .fa-modal-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
       .fa-modal-body { padding: 16px 18px 18px; overflow: auto; max-height: calc(88vh - 92px); }
-      .fa-confirm-card { width: min(100%, 420px); }
-      .fa-confirm-icon {
-        width: 62px; height: 62px; margin: 0 auto;
-        display: grid; place-items: center; border-radius: 20px;
-        background: linear-gradient(145deg, rgba(214,180,109,.98), rgba(126,98,43,.98));
-        color: #121316; font-size: 26px; font-weight: 900;
-      }
-
-      body.fa-mobile-fullscreen .fa-topbar,
-      body.fa-mobile-fullscreen .fa-right,
-      body.fa-mobile-fullscreen .fa-bottom,
-      body.fa-mobile-fullscreen .fa-status-row {
-        display: none !important;
-      }
-      body.fa-mobile-fullscreen .fa-main {
-        display: block;
-        max-width: 100%;
-        padding: 0;
-      }
-      body.fa-mobile-fullscreen .fa-panel.hero {
-        padding: 0;
-        border-radius: 0;
-        border: 0;
-        min-height: 100vh;
-        background: #05070c;
-      }
-      body.fa-mobile-fullscreen .fa-board-wrap {
-        min-height: 100vh;
-        border-radius: 0;
-        padding: 10px;
-      }
-      body.fa-mobile-fullscreen #fa-board {
-        width: min(100vw - 20px, 100vh - 20px);
-      }
-
       @media (max-width: 1120px) {
         .fa-main { grid-template-columns: 1fr; }
       }
       @media (max-width: 740px) {
+        .fa-lobby-summary { grid-template-columns: 1fr; }
         .fa-topbar { padding: 14px; }
         .fa-main { padding: 6px 14px 18px; gap: 14px; }
-        .hero, .setup, .stats, .info, .lb { padding: 14px; border-radius: 22px; }
+        .hero, .setup, .stats, .info, .lb { padding: 14px; border-radius: 20px; }
         .fa-status-row { grid-template-columns: 1fr; }
         .fa-center-vs { order: -1; }
         .fa-bottom { flex-direction: column; align-items: stretch; }
         .fa-actions { width: 100%; }
         .fa-actions .fa-btn { flex: 1; }
+        .fa-input-wrap { flex-direction: column; }
         .fa-brand-title { font-size: 18px; }
         .fa-modal { padding: 14px; }
         .fa-modal-head { padding: 14px; }
         .fa-modal-body { padding: 14px; }
         .fa-rank-row { grid-template-columns: 42px 1fr auto; padding: 11px; }
-        .fa-start-profile { flex-direction: column; text-align: center; }
-        .fa-start-fields { width: 100%; text-align: left; }
-        .fa-board-wrap { min-height: 72vh; }
       }
     `;
     document.head.appendChild(style);
+    document.body.innerHTML = '';
     document.body.appendChild(root);
 
-    ui.root = root;
-    ui.boardWrap = root.querySelector('#fa-board-wrap');
     ui.board = root.querySelector('#fa-board');
     ui.ctx = ui.board.getContext('2d');
     ui.overlay = root.querySelector('#fa-overlay');
@@ -700,51 +533,37 @@
     ui.reviewLine = root.querySelector('#fa-review-line');
     ui.nickInput = root.querySelector('#fa-nickname');
     ui.nickNote = root.querySelector('#fa-nick-note');
-    ui.selfAvatar = root.querySelector('#fa-self-avatar');
-    ui.startAvatar = root.querySelector('#fa-start-avatar');
-    ui.sideAvatar = root.querySelector('#fa-side-avatar');
-    ui.sideName = root.querySelector('#fa-side-name');
-    ui.connectionNote = root.querySelector('#fa-connection-note');
+    ui.profilePanel = root.querySelector('#fa-profile-panel');
     ui.leaderPreview = root.querySelector('#fa-leader-preview');
     ui.leaderModal = root.querySelector('#fa-leaderboard-modal');
     ui.leaderList = root.querySelector('#fa-leaderboard-list');
-    ui.startScreen = root.querySelector('#fa-start-screen');
-    ui.pauseScreen = root.querySelector('#fa-pause-screen');
-    ui.pauseTitle = root.querySelector('#fa-pause-title');
-    ui.pauseText = root.querySelector('#fa-pause-text');
-    ui.confirmModal = root.querySelector('#fa-confirm-modal');
-    ui.confirmTitle = root.querySelector('#fa-confirm-title');
-    ui.confirmText = root.querySelector('#fa-confirm-text');
 
     root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
-    root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
-    root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
-    root.querySelector('#fa-rematch-btn').addEventListener('click', () => { closeOverlay(); prepareMatch(); });
+    root.querySelector('#fa-save-nick').addEventListener('click', lockNickname);
+    root.querySelector('#fa-newgame-btn').addEventListener('click', newGame);
+    root.querySelector('#fa-rematch-btn').addEventListener('click', () => { closeOverlay(); newGame(); });
     root.querySelector('#fa-review-btn').addEventListener('click', startReview);
     root.querySelector('#fa-reset-score-btn').addEventListener('click', resetCareer);
-    root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
-    root.querySelector('#fa-pause-top-btn').addEventListener('click', togglePause);
-    root.querySelector('#fa-resume-btn').addEventListener('click', resumeGame);
-    root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
-    root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
 
     ui.board.addEventListener('click', onBoardClick);
     ui.nickInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') startGameFromLobby();
+      if (e.key === 'Enter') lockNickname();
     });
     ui.leaderModal.addEventListener('click', e => {
       if (e.target === ui.leaderModal) closeLeaderboard();
     });
-    ui.confirmModal.addEventListener('click', e => {
-      if (e.target === ui.confirmModal) closeConfirm();
-    });
     window.addEventListener('keydown', onGlobalKey);
-    window.addEventListener('resize', () => {
-      updateMobileMode();
-      renderBoard();
-    });
+    window.addEventListener('resize', renderBoard);
     document.addEventListener('pointerdown', initAudio, { once: true });
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', e => {
+      const now = Date.now();
+      if (now - lastTouchEnd < 320) e.preventDefault();
+      lastTouchEnd = now;
+    }, { passive: false });
+    document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
+    ui.board.addEventListener('dblclick', e => e.preventDefault());
   }
 
   function initAudio() {
@@ -813,61 +632,36 @@
     });
   }
 
-  async function startGameFromLobby() {
-    const nickname = (ui.nickInput.value || '').trim();
-    if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
-      ui.nickNote.textContent = 'Use 2 to 18 letters or numbers.';
+  function lockNickname() {
+    if (state.nicknameLocked) return;
+    const value = (ui.nickInput.value || '').trim();
+    if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(value)) {
+      ui.nickNote.textContent = 'Use 2 to 18 letters or numbers';
       return;
     }
-
-    const existingProfile = state.profile;
-    if (existingProfile && existingProfile.nickname && existingProfile.nickname !== nickname) {
-      state.profile.nickname = nickname;
-      state.profile.avatar = state.profile.avatar || getAvatarBySeed(state.profile.id);
-    }
-
-    if (!state.profile) {
-      const id = uid();
-      state.profile = {
-        id,
-        nickname,
-        avatar: getAvatarBySeed(id),
-        rank: getRankFromWins(state.totalWins),
-        provider: 'local'
-      };
-    } else {
-      state.profile.nickname = nickname;
-    }
-
-    const duplicated = await state.remoteAdapter.nameExists(state.profile.nickname, state.profile.id);
-    if (duplicated) {
-      ui.nickNote.textContent = 'Nickname already exists on the ladder.';
-      return;
-    }
-
-    state.started = true;
-    state.phase = 'playing';
-    state.paused = false;
+    state.profile = { id: uid(), nickname: value, rank: getRankFromWins(state.totalWins) };
+    state.nicknameLocked = true;
     saveState();
-    updateAvatars();
-    closeStartScreen();
-    prepareMatch();
-    requestMobileFullscreen();
+    upsertProfileToLeaderboard();
     syncUI();
+    renderLeaderboard();
   }
 
-  function handleNewMatch() {
-    if (!state.profile) {
-      openStartScreen();
-      return;
-    }
-    if (!state.started || state.phase === 'intro') {
-      closeStartScreen();
-    }
-    prepareMatch();
+  function resetCareer() {
+    if (!confirm('Reset your record?')) return;
+    state.streak = 0;
+    state.totalWins = 0;
+    state.totalLosses = 0;
+    state.totalGames = 0;
+    if (state.profile) state.profile.rank = getRankFromWins(0);
+    saveState();
+    upsertProfileToLeaderboard();
+    syncUI();
+    renderLeaderboard();
+    newGame();
   }
 
-  function prepareMatch() {
+  function newGame() {
     state.board = createBoard();
     state.turn = HUMAN;
     state.gameOver = false;
@@ -877,67 +671,9 @@
     state.moveCount = 0;
     state.review = [];
     state.reviewIndex = 0;
-    state.winningLine = [];
-    state.paused = false;
-    state.started = true;
-    state.phase = 'playing';
-    closePauseScreen();
     closeOverlay();
-    updateMobileMode();
     syncUI();
     renderBoard();
-  }
-
-  function togglePause() {
-    if (!state.started || state.gameOver || state.phase === 'intro') return;
-    if (state.paused) resumeGame();
-    else pauseGame('Game Paused', 'Your match is safely on hold.');
-  }
-
-  function pauseGame(title, text) {
-    state.paused = true;
-    state.phase = 'paused';
-    ui.pauseTitle.textContent = title;
-    ui.pauseText.textContent = text;
-    ui.pauseScreen.classList.remove('hidden');
-    updateMobileMode();
-    syncUI();
-  }
-
-  function resumeGame() {
-    if (!state.started) return;
-    state.paused = false;
-    state.phase = 'playing';
-    closePauseScreen();
-    updateMobileMode();
-    syncUI();
-    renderBoard();
-  }
-
-  function backToLobby() {
-    state.paused = false;
-    state.started = false;
-    state.phase = 'intro';
-    closePauseScreen();
-    closeOverlay();
-    openStartScreen();
-    exitMobileFullscreen();
-    syncUI();
-  }
-
-  function openStartScreen() {
-    ui.startScreen.classList.remove('hidden');
-    state.phase = 'intro';
-    state.started = false;
-    syncUI();
-  }
-
-  function closeStartScreen() {
-    ui.startScreen.classList.add('hidden');
-  }
-
-  function closePauseScreen() {
-    ui.pauseScreen.classList.add('hidden');
   }
 
   function closeOverlay() {
@@ -950,111 +686,36 @@
     ui.overlay.classList.remove('hidden');
   }
 
-  function openConfirm({ title, text, onConfirm }) {
-    ui.confirmTitle.textContent = title;
-    ui.confirmText.textContent = text;
-    ui.confirmModal.classList.remove('hidden');
-    const ok = ui.root.querySelector('#fa-confirm-ok');
-    ok.onclick = () => {
-      closeConfirm();
-      if (typeof onConfirm === 'function') onConfirm();
-    };
-  }
-
-  function closeConfirm() {
-    ui.confirmModal.classList.add('hidden');
-  }
-
-  function resetCareer() {
-    openConfirm({
-      title: 'Reset Career',
-      text: 'Wins, losses, games, and streak will be erased. Your nickname will stay.',
-      onConfirm: () => {
-        state.streak = 0;
-        state.bestStreak = 0;
-        state.totalWins = 0;
-        state.totalLosses = 0;
-        state.totalGames = 0;
-        if (state.profile) state.profile.rank = getRankFromWins(0);
-        saveState();
-        syncProfileToLeaderboard();
-        syncUI();
-        renderLeaderboard();
-        prepareMatch();
-      }
-    });
-  }
-
   function syncUI() {
     const rank = getRankFromWins(state.totalWins);
     if (state.profile) state.profile.rank = rank;
-
     ui.playerName.textContent = state.profile ? state.profile.nickname : 'Guest';
     ui.playerRank.textContent = rank;
-    ui.sideName.textContent = state.profile ? state.profile.nickname : 'Guest';
     ui.aiRank.textContent = getAiTitle();
+    ui.turnLabel.textContent = state.gameOver ? (state.winner === HUMAN ? 'Victory' : state.winner === AI ? 'Defeat' : 'Finished') : (state.turn === HUMAN ? 'Your Move' : 'AI Thinking');
     ui.streakLabel.textContent = 'Win Streak ' + state.streak;
-
-    let turnText = 'Press Start';
-    if (state.phase === 'intro') turnText = 'Press Start';
-    else if (state.phase === 'paused') turnText = 'Paused';
-    else if (state.gameOver) {
-      turnText = state.winner === HUMAN ? 'Victory' : state.winner === AI ? 'Defeat' : 'Draw';
-    } else {
-      turnText = state.turn === HUMAN ? 'Your Move' : 'AI Thinking';
-    }
-    ui.turnLabel.textContent = turnText;
-
     const progress = getNextRankProgress(state.totalWins);
     ui.progressRank.textContent = progress.rank;
     ui.progressText.textContent = progress.need === 0 ? 'Max rank reached' : `${progress.current} / ${progress.max} wins`;
     ui.progressFill.style.width = `${progress.need === 0 ? 100 : (progress.current / progress.max) * 100}%`;
-
     ui.totalWins.textContent = String(state.totalWins);
     ui.totalLosses.textContent = String(state.totalLosses);
     ui.totalGames.textContent = String(state.totalGames);
-    ui.bestTier.textContent = String(state.bestStreak);
+    ui.bestTier.textContent = String(state.streak);
     ui.scaleLine.textContent = getAiTitle();
     ui.reviewLine.textContent = state.review.length ? `${state.reviewIndex + 1} / ${state.review.length}` : 'Ready';
-    ui.connectionNote.textContent = state.remoteAdapter.mode === 'local-ready' ? 'Local ladder mode · Firebase ready' : 'Firebase connected';
 
-    if (state.profile) {
-      ui.nickInput.value = state.profile.nickname || '';
-      ui.nickNote.textContent = 'Ready for local ranking and future Firebase sync.';
-    } else {
-      ui.nickInput.value = '';
+    if (state.nicknameLocked && state.profile) {
+      ui.nickInput.value = state.profile.nickname;
+      ui.nickInput.disabled = true;
+      ui.nickNote.textContent = 'Locked';
+      ui.profilePanel.querySelector('.fa-btn.primary').disabled = true;
+      ui.profilePanel.querySelector('.fa-btn.primary').textContent = 'Locked';
     }
-
-    updateAvatars();
   }
 
-  function updateAvatars() {
-    const avatar = state.profile ? (state.profile.avatar || getAvatarBySeed(state.profile.id)) : '♞';
-    [ui.selfAvatar, ui.startAvatar, ui.sideAvatar].forEach(el => {
-      if (!el) return;
-      el.setAttribute('data-avatar', avatar);
-    });
-  }
-
-  async function syncProfileToLeaderboard() {
-    if (!state.profile || state.totalGames <= 0) return;
-    const entry = {
-      id: state.profile.id,
-      nickname: state.profile.nickname,
-      avatar: state.profile.avatar,
-      totalWins: state.totalWins,
-      totalLosses: state.totalLosses,
-      totalGames: state.totalGames,
-      rank: getRankFromWins(state.totalWins),
-      streak: state.streak,
-      bestStreak: state.bestStreak
-    };
-    await state.remoteAdapter.saveEntry(entry);
-    state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
-  }
-
-  async function openLeaderboard() {
-    await renderLeaderboard(true);
+  function openLeaderboard() {
+    renderLeaderboard(true);
     ui.leaderModal.classList.remove('hidden');
   }
 
@@ -1062,39 +723,20 @@
     ui.leaderModal.classList.add('hidden');
   }
 
-  async function renderLeaderboard(full = false) {
-    let board = [];
-    try {
-      board = await state.remoteAdapter.fetchTop(50);
-    } catch {
-      board = getLocalLeaderboard().slice(0, 50);
-    }
-    state.leaderboardCache = board;
-
+  function renderLeaderboard(full = false) {
+    const board = getLeaderboard().sort(compareLeaderboard).slice(0, 50);
     const buildRow = (p, i) => `
       <div class="fa-rank-row">
         <div class="fa-rank-pos">${i + 1}</div>
         <div class="fa-rank-main">
           <div class="fa-rank-name">${escapeHtml(p.nickname)}</div>
-          <div class="fa-rank-sub">${p.totalGames || 0} games · ${p.totalWins || 0} wins · best streak ${p.bestStreak || 0}</div>
+          <div class="fa-rank-sub">${p.totalWins || 0} wins · ${p.totalLosses || 0} losses · streak ${p.streak || 0}</div>
         </div>
-        <div class="fa-rank-badge">${escapeHtml(p.rank || '10k')}</div>
+        <div class="fa-rank-badge">${p.rank}</div>
       </div>
     `;
-
-    const empty = `
-      <div class="fa-rank-row">
-        <div class="fa-rank-pos">—</div>
-        <div class="fa-rank-main">
-          <div class="fa-rank-name">No ranked players yet</div>
-          <div class="fa-rank-sub">Only players who actually play a match appear here.</div>
-        </div>
-        <div class="fa-rank-badge">Start</div>
-      </div>
-    `;
-
-    ui.leaderPreview.innerHTML = board.length ? board.map(buildRow).join('') : empty;
-    if (full) ui.leaderList.innerHTML = board.length ? board.map(buildRow).join('') : empty;
+    ui.leaderPreview.innerHTML = board.map(buildRow).join('');
+    if (full) ui.leaderList.innerHTML = board.map(buildRow).join('');
   }
 
   function escapeHtml(v) {
@@ -1106,9 +748,7 @@
       if (ui.leaderModal.classList.contains('hidden')) openLeaderboard();
       else closeLeaderboard();
     }
-    if (e.key.toLowerCase() === 'n') handleNewMatch();
-    if (e.key.toLowerCase() === 'p') togglePause();
-
+    if (e.key.toLowerCase() === 'n') newGame();
     if (state.review.length && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       if (e.key === 'ArrowLeft') state.reviewIndex = Math.max(0, state.reviewIndex - 1);
       else state.reviewIndex = Math.min(state.review.length - 1, state.reviewIndex + 1);
@@ -1132,22 +772,19 @@
   }
 
   function onBoardClick(e) {
-    if (!state.profile) {
-      openStartScreen();
+    if (!state.nicknameLocked) {
+      ui.nickNote.textContent = 'Lock nickname first';
       return;
     }
-    if (!state.started || state.phase !== 'playing' || state.turn !== HUMAN || state.gameOver || state.pendingLock || state.paused) return;
-
+    if (state.turn !== HUMAN || state.gameOver || state.pendingLock) return;
     const rect = ui.board.getBoundingClientRect();
     const scaleX = ui.board.width / rect.width;
     const scaleY = ui.board.height / rect.height;
     const pos = nearestPoint((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
     if (!pos) return;
     if (state.board[pos.y][pos.x] !== EMPTY) return;
-
     placeMove(pos.x, pos.y, HUMAN);
     if (state.gameOver) return;
-
     state.turn = AI;
     syncUI();
     state.pendingLock = true;
@@ -1167,14 +804,12 @@
     if (result.win) {
       state.gameOver = true;
       state.winner = side;
-      state.winningLine = result.line;
       finishGame(side, result.line);
       return;
     }
     if (isFull(state.board)) {
       state.gameOver = true;
       state.winner = 0;
-      state.winningLine = [];
       finishGame(0, []);
       return;
     }
@@ -1182,35 +817,30 @@
     syncUI();
   }
 
-  async function finishGame(winner, line) {
+  function finishGame(winner, line) {
     state.pendingLock = false;
     state.totalGames += 1;
-    let title = 'Draw';
+    let title = 'Finished';
     let text = 'No winner this round.';
     if (winner === HUMAN) {
       state.totalWins += 1;
       state.streak += 1;
-      state.bestStreak = Math.max(state.bestStreak, state.streak);
-      title = 'Victory!';
-      text = `Elegant finish. Rank ${getRankFromWins(state.totalWins)} · Streak ${state.streak}`;
+      title = 'Victory';
+      text = `Rank ${getRankFromWins(state.totalWins)} · Streak ${state.streak}`;
       fanfare(true);
     } else if (winner === AI) {
       state.totalLosses += 1;
       state.streak = 0;
-      title = 'Defeat!';
-      text = `The AI held the line. Rank ${getRankFromWins(state.totalWins)} · Challenge ${getAiTitle()}`;
+      title = 'Defeat';
+      text = `AI scale ${getAiTitle()} · Rank ${getRankFromWins(state.totalWins)}`;
       fanfare(false);
     }
     saveState();
-    await syncProfileToLeaderboard();
-    state.paused = true;
-    state.phase = 'paused';
-    closePauseScreen();
+    upsertProfileToLeaderboard();
     syncUI();
-    await renderLeaderboard();
-    renderBoard(undefined, undefined, line);
-    updateMobileMode();
+    renderLeaderboard();
     showOverlay(title, text);
+    renderBoard(undefined, undefined, line);
   }
 
   function isFull(board) {
@@ -1242,7 +872,7 @@
   }
 
   function aiTurn() {
-    if (state.gameOver || state.phase !== 'playing') return;
+    if (state.gameOver) return;
     const profile = getAiProfile();
     const move = chooseAiMove(state.board, profile);
     state.pendingLock = false;
@@ -1424,7 +1054,7 @@
     let total = 0;
     for (const [dx, dy] of dirs) {
       const info = analyzeDirection(board, x, y, side, dx, dy);
-      total += patternScore(info.count, info.openEnds, info.gap);
+      total += patternScore(info.count, info.openEnds, info.gap, info.chainLengths);
     }
     return total;
   }
@@ -1455,6 +1085,7 @@
     let count = 1;
     let openEnds = 0;
     let gap = -1;
+    const chainLengths = [];
 
     let n = 1;
     let seg = 0;
@@ -1486,6 +1117,7 @@
       } else break;
       n++;
     }
+    chainLengths.push(seg);
 
     n = 1;
     seg = 0;
@@ -1517,8 +1149,9 @@
       } else break;
       n++;
     }
+    chainLengths.push(seg);
 
-    return { count, openEnds, gap };
+    return { count, openEnds, gap, chainLengths };
   }
 
   function patternScore(count, openEnds, gap) {
@@ -1583,7 +1216,7 @@
     for (let i = 0; i < 140; i++) {
       const y = (i / 140) * h;
       ctx.fillStyle = i % 3 === 0 ? '#6b4f1f' : '#8c6a31';
-      ctx.fillRect(0, y, w, 1 + ((i % 5) * 0.4));
+      ctx.fillRect(0, y, w, 1 + Math.random() * 2);
     }
     ctx.restore();
 
@@ -1616,7 +1249,7 @@
       ctx.strokeStyle = 'rgba(83,229,160,.88)';
       ctx.shadowColor = 'rgba(83,229,160,.44)';
       ctx.shadowBlur = 18;
-      const ordered = winningLine.slice().sort((a, b) => a.x + a.y - (b.x + b.y));
+      const ordered = winningLine.sort((a, b) => a.x + a.y - (b.x + b.y));
       ctx.beginPath();
       ctx.moveTo(boardCoord(ordered[0].x), boardCoord(ordered[0].y));
       ctx.lineTo(boardCoord(ordered[ordered.length - 1].x), boardCoord(ordered[ordered.length - 1].y));
@@ -1698,43 +1331,13 @@
     syncUI();
   }
 
-  function requestMobileFullscreen() {
-    if (window.innerWidth > 740) return;
-    document.body.classList.add('fa-mobile-fullscreen');
-    state.fullscreenRequested = true;
-    const elem = document.documentElement;
-    if (elem && elem.requestFullscreen) {
-      elem.requestFullscreen().catch(() => {});
-    }
-  }
-
-  function exitMobileFullscreen() {
-    document.body.classList.remove('fa-mobile-fullscreen');
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {});
-    }
-  }
-
-  function updateMobileMode() {
-    const should = window.innerWidth <= 740 && state.started && state.phase !== 'intro';
-    if (should) document.body.classList.add('fa-mobile-fullscreen');
-    else if (!state.fullscreenRequested || !should) document.body.classList.remove('fa-mobile-fullscreen');
-  }
-
-  async function boot() {
+  function boot() {
     restore();
+    ensureViewportLock();
     createShell();
     syncUI();
-    await renderLeaderboard();
-    renderBoard();
-    if (state.profile) {
-      openStartScreen();
-      ui.nickInput.value = state.profile.nickname || '';
-      ui.nickNote.textContent = 'Update nickname before starting, or continue as is.';
-    } else {
-      openStartScreen();
-    }
-    updateMobileMode();
+    renderLeaderboard();
+    newGame();
   }
 
   if (document.readyState === 'loading') {
