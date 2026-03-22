@@ -427,6 +427,7 @@
         --shadow: 0 24px 70px rgba(0,0,0,.46);
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      .hidden { display: none !important; }
       html, body { min-height: 100%; }
       .fa-wrap { min-height: 100vh; position: relative; overflow: hidden; }
       .fa-bg {
