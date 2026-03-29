@@ -1,5 +1,3 @@
-
-
   function ordinalSuffix(n) {
     const v = Math.abs(Number(n)) || 0;
     const mod100 = v % 100;
@@ -1180,10 +1178,32 @@
         .fa-room-actions { grid-template-columns: 1fr 1fr; }
         .fa-room-actions input { grid-column: 1 / -1; }
         .fa-room-presence-slots { grid-template-columns: 1fr; }
-        .fa-open-rooms-list { display:flex; flex-wrap: nowrap !important; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 8px; justify-content:flex-start; touch-action: pan-x; overscroll-behavior-x: contain; }
-        .fa-open-rooms-list.single-room { overflow-x: hidden; justify-content: center; }
-        .fa-room-item { grid-template-columns: minmax(0,1fr) auto; min-width: 86vw; width: 86vw; max-width: 360px; flex: 0 0 86vw; scroll-snap-align: start; }
-        .fa-open-rooms-list.single-room .fa-room-item { min-width: min(100%, 360px); width: min(100%, 360px); flex: 0 1 min(100%, 360px); }
+        .fa-open-rooms { max-height: 46vh; display: flex; flex-direction: column; }
+        .fa-open-rooms-list {
+          display: flex;
+          flex-direction: column;
+          flex-wrap: nowrap !important;
+          gap: 10px;
+          overflow-x: hidden;
+          overflow-y: auto;
+          max-height: 32vh;
+          -webkit-overflow-scrolling: touch;
+          padding-bottom: 2px;
+          justify-content: flex-start;
+          touch-action: pan-y;
+          overscroll-behavior-y: contain;
+          scroll-snap-type: y proximity;
+        }
+        .fa-open-rooms-list.single-room { overflow-y: auto; justify-content: flex-start; }
+        .fa-room-item {
+          grid-template-columns: minmax(0,1fr) auto;
+          min-width: 100%;
+          width: 100%;
+          max-width: 100%;
+          flex: 0 0 auto;
+          scroll-snap-align: start;
+        }
+        .fa-open-rooms-list.single-room .fa-room-item { min-width: 100%; width: 100%; max-width: 100%; flex: 0 0 auto; }
         .fa-board-wrap { min-height: 72vh; }
       }
     `;
