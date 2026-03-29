@@ -686,6 +686,8 @@
       .fa-room-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) repeat(3, auto); gap:10px; }
       .fa-room-actions input { min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
       .fa-room-actions input::placeholder { color: rgba(255,248,239,.48); }
+      .fa-room-actions.room-locked { grid-template-columns: 1fr; }
+      .fa-room-actions.room-locked .fa-btn { width: 100%; }
       .fa-room-presence {
         margin-top: 12px; padding: 14px; border-radius: 18px;
         border: 1px solid rgba(255,235,202,.12);
@@ -1254,6 +1256,7 @@
     ui.roomCodeInput = root.querySelector('#fa-room-code-input');
     ui.roomCodeView = root.querySelector('#fa-room-code-view');
     ui.roomStatus = root.querySelector('#fa-room-status');
+    ui.roomActions = ui.roomTitleInput ? ui.roomTitleInput.parentElement : null;
     ui.createRoomBtn = root.querySelector('#fa-create-room-btn');
     ui.joinRoomBtn = root.querySelector('#fa-join-room-btn');
     ui.leaveRoomBtn = root.querySelector('#fa-leave-room-btn');
@@ -2081,6 +2084,7 @@
       if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
         stopOnlinePresence();
         state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0 };
+        if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
         syncUI();
         return;
       }
@@ -2329,6 +2333,8 @@
       ui.roomStatus.textContent = 'Firebase room sync is not available.';
       return;
     }
+    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '1';
+    updateFriendRoomPanelVisibility();
     const typedCode = normalizeRoomCode(ui.roomCodeInput?.value);
     if (typedCode) {
       await joinOnlineRoom(typedCode);
@@ -2698,6 +2704,19 @@
     });
   }
 
+  function updateFriendRoomPanelVisibility() {
+    const hasRoom = !!(state.online.roomId || state.online.roomCode);
+    const inFriendMode = isOnlineMode();
+    const showComposer = inFriendMode && !hasRoom;
+    if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !showComposer);
+    if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !showComposer);
+    if (ui.createRoomBtn) ui.createRoomBtn.classList.toggle('hidden', !showComposer);
+    if (ui.joinRoomBtn) ui.joinRoomBtn.classList.toggle('hidden', !showComposer);
+    if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !showComposer || !ui.openRoomsPanel.dataset.open);
+    if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !(inFriendMode && hasRoom));
+    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', inFriendMode && hasRoom);
+  }
+
   function syncUI() {
     const rank = getCurrentRankFromState();
     if (state.profile) state.profile.rank = rank;
@@ -2738,7 +2757,7 @@
     if (ui.roomCodeView) ui.roomCodeView.textContent = (state.online.roomId || state.online.roomCode) ? `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' · ' + state.online.roomCode : ' · Open'}` : 'Room: ——';
     if (ui.roomStatus) ui.roomStatus.textContent = isOnlineMode() ? (state.online.status === 'ready' ? (state.online.role === 'host' ? (state.online.guestReady ? 'Guest ready · press Start.' : 'Waiting for your friend to press Ready.') : (state.online.guestReady ? 'Ready locked · waiting for host start.' : 'Press Ready to enter the duel.')) : state.online.status === 'waiting' ? 'Waiting for friend to join.' : state.online.status === 'playing' ? `${state.turn === getMySide() ? 'Your turn' : 'Friend turn'} · ${Math.max(0, state.turnSecondsLeft)}s` : state.online.status === 'countdown' ? 'Starting now...' : 'Create or join a room.') : 'Create or join a room.';
     renderOnlinePresence();
-    if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !(state.online.roomId || state.online.roomCode));
+    updateFriendRoomPanelVisibility();
     ui.connectionNote.textContent = isOnlineMode() ? ((state.online.roomId || state.online.roomCode) ? `Online room ${state.online.roomTitle || (state.online.roomCode || 'Open')}` : 'Firebase online friendly ready') : (state.remoteAdapter.mode === 'local-ready' ? 'Local ladder mode · Firebase ready' : 'Firebase connected');
 
     if (ui.saveStart) {
