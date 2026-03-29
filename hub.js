@@ -1219,6 +1219,7 @@
     ui.fixedName = root.querySelector('#fa-fixed-name');
     ui.selfAvatar = root.querySelector('#fa-self-avatar');
     ui.startAvatar = root.querySelector('#fa-start-avatar');
+    ui.startProfile = root.querySelector('.fa-start-profile');
     ui.sideAvatar = root.querySelector('#fa-side-avatar');
     ui.sideName = root.querySelector('#fa-side-name');
     ui.connectionNote = root.querySelector('#fa-connection-note');
@@ -1731,10 +1732,16 @@
 
   function updateLobbyProfileUI() {
     const locked = !!(state.profile && state.profile.nickname);
-    if (ui.nicknameEditor) ui.nicknameEditor.classList.toggle('hidden', locked);
-    if (ui.fixedProfile) ui.fixedProfile.classList.toggle('hidden', !locked);
+    const hasRoom = !!(state.online.roomId || state.online.roomCode);
+    const compactFriendRoom = isOnlineMode() && hasRoom;
+    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', compactFriendRoom);
+    if (ui.nicknameEditor) ui.nicknameEditor.classList.toggle('hidden', locked || compactFriendRoom);
+    if (ui.fixedProfile) ui.fixedProfile.classList.toggle('hidden', !locked || compactFriendRoom);
     if (ui.fixedName) ui.fixedName.textContent = locked ? state.profile.nickname : 'Player';
-    if (locked) {
+    if (compactFriendRoom) {
+      state.lobbyConfirmed = true;
+      if (ui.nickNote) ui.nickNote.textContent = 'Room ready. Host and guest are shown above.';
+    } else if (locked) {
       state.lobbyConfirmed = true;
       if (ui.nickNote) ui.nickNote.textContent = 'Nickname is locked. You can start immediately.';
     } else if (ui.nickNote) {
