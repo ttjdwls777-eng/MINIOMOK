@@ -35,6 +35,9 @@
   const ROOM_STALE_MS = 1000 * 60 * 20;
   const ROOM_PRESENCE_TTL_MS = 1000 * 15;
   const ROOM_PRESENCE_PING_MS = 1000 * 5;
+  const STAR_BALANCE_DEFAULT = 10000;
+  const STAR_WAGER_OPTIONS = [100, 1000, 10000];
+  const STAR_WIN_RATE = 0.85;
 
   const FirebaseLeaderboardAdapter = {
   mode: 'firebase-ready',
@@ -166,7 +169,8 @@
       lastGuestSeenId: '',
       lastRoomPulseAt: 0,
       panelMode: 'none',
-      lastGuestReadySeenAt: 0
+      lastGuestReadySeenAt: 0,
+      starWager: 100
     }
   };
 
@@ -182,6 +186,62 @@
 
   function uid() {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  function normalizeStars(value) {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) && n >= 0 ? n : STAR_BALANCE_DEFAULT;
+  }
+
+  function formatNumber(value) {
+    try {
+      return new Intl.NumberFormat('en-US').format(Math.max(0, Math.floor(Number(value) || 0)));
+    } catch {
+      return String(Math.max(0, Math.floor(Number(value) || 0)));
+    }
+  }
+
+  function ensureProfileEconomy(profile) {
+    if (!profile) return profile;
+    profile.stars = normalizeStars(profile.stars);
+    profile.lastStarSettleKey = String(profile.lastStarSettleKey || '');
+    return profile;
+  }
+
+  function getCurrentStars() {
+    return normalizeStars(state.profile?.stars);
+  }
+
+  function getSelectedStarWager() {
+    const raw = Number(ui.roomStakeSelect?.value || state.online.starWager || STAR_WAGER_OPTIONS[0]);
+    return STAR_WAGER_OPTIONS.includes(raw) ? raw : STAR_WAGER_OPTIONS[0];
+  }
+
+  function canAffordStars(amount) {
+    return getCurrentStars() >= Math.max(0, Number(amount) || 0);
+  }
+
+  function getStarSettlementKey(roomId, finishedAt) {
+    return `${String(roomId || '')}:${String(finishedAt || '')}`;
+  }
+
+  function applyStarSettlementForResult(winner, wager, finishedAt, roomId) {
+    if (!state.profile || !isOnlineMode()) return null;
+    const safeWager = STAR_WAGER_OPTIONS.includes(Number(wager)) ? Number(wager) : 0;
+    if (!safeWager || !finishedAt) return null;
+    ensureProfileEconomy(state.profile);
+    const settleKey = getStarSettlementKey(roomId || state.online.roomId || state.online.roomCode, finishedAt);
+    if (state.profile.lastStarSettleKey === settleKey) return null;
+    const mySide = getMySide();
+    const oppSide = getOpponentSide();
+    let delta = 0;
+    if (winner === mySide) delta = Math.floor(safeWager * STAR_WIN_RATE);
+    else if (winner === oppSide) delta = -safeWager;
+    else return null;
+    state.profile.stars = Math.max(0, normalizeStars(state.profile.stars) + delta);
+    state.profile.lastStarSettleKey = settleKey;
+    saveState();
+    return { delta, wager: safeWager, balance: state.profile.stars };
   }
 
   function getSavedState() {
@@ -335,6 +395,10 @@
     return DEFAULT_AVATARS[n % DEFAULT_AVATARS.length];
   }
 
+  function isRankedAiMatch() {
+    return state.matchMode === 'ai' && !isOnlineMode();
+  }
+
 
   function getWeeklyWindow(now = new Date()) {
     const d = new Date(now);
@@ -396,7 +460,7 @@
       state.gradeScore = saved.gradeScore != null ? Math.max(0, Math.min(MAX_GRADE_SCORE, Number(saved.gradeScore) || 0)) : getLegacyGradeScoreFromWins(saved.totalWins || 0);
     }
     if (profile && profile.id && profile.nickname) {
-      state.profile = profile;
+      state.profile = ensureProfileEconomy(profile);
       state.profile.rank = getCurrentRankFromState();
       state.profile.avatar = state.profile.avatar || getAvatarBySeed(profile.id);
       const season = ensureWeeklySeason();
@@ -490,6 +554,11 @@
                       <div class="fa-room-actions">
                         <input id="fa-room-title-input" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Room title" />
                         <input id="fa-room-code-input" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Enter room code (optional)" />
+                        <select id="fa-room-stake-select" class="fa-room-stake-select" aria-label="Star stake">
+                          <option value="100">★ Star 100</option>
+                          <option value="1000">★ Star 1,000</option>
+                          <option value="10000">★ Star 10,000</option>
+                        </select>
                         <button class="fa-btn" id="fa-create-room-btn">Create Room</button>
                         <button class="fa-btn" id="fa-join-room-btn">Join Room</button>
                         <button class="fa-btn ghost hidden" id="fa-leave-room-btn">Leave Room</button>
@@ -612,6 +681,19 @@
               </div>
             </div>
 
+            <div class="fa-panel wallet">
+              <div class="fa-panel-title">Star Wallet</div>
+              <div class="fa-panel-sub">Current Stars and match stake overview.</div>
+              <div class="fa-wallet-box">
+                <div class="fa-wallet-line">
+                  <span class="fa-star-icon" aria-hidden="true">★</span>
+                  <span class="fa-wallet-label">Current Stars</span>
+                </div>
+                <strong id="fa-current-stars">10,000</strong>
+                <div class="fa-wallet-mini" id="fa-current-stake-note">Room stake ready · ★ 100</div>
+              </div>
+            </div>
+
             <div class="fa-panel stats">
               <div class="fa-panel-title">Career</div>
               <div class="fa-stats-grid">
@@ -634,7 +716,7 @@
             </div>
 
             <div class="fa-panel lb">
-              <div class="fa-panel-title">Top 50</div>
+              <div class="fa-panel-title">Top 30</div>
               <div class="fa-panel-sub">Only players with at least 1 win are listed.</div>
               <div class="fa-leader-scroll" id="fa-leader-preview"></div>
             </div>
@@ -745,9 +827,11 @@
       .fa-friend-top { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
       .fa-room-code { font-weight:900; letter-spacing:.08em; color:#ffe7b4; }
       .fa-room-status { color: var(--muted); font-size: 13px; }
-      .fa-room-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) repeat(3, auto); gap:10px; }
-      .fa-room-actions input { min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
+      .fa-room-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,160px) repeat(3, auto); gap:10px; }
+      .fa-room-actions input, .fa-room-stake-select { min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
       .fa-room-actions input::placeholder { color: rgba(255,248,239,.48); }
+      .fa-room-stake-select { appearance:none; font-weight:800; cursor:pointer; }
+      .fa-room-stake-select option { color:#1a120b; }
       .fa-room-actions.room-locked { grid-template-columns: 1fr; }
       .fa-room-actions.room-locked .fa-btn { width: 100%; }
       #fa-mode-create-room { display:inline-flex; }
@@ -1046,6 +1130,20 @@
         margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
         background: rgba(255,245,232,.05); border: 1px solid rgba(255,237,206,.08); border-radius: 18px;
       }
+      .fa-wallet-box {
+        margin-top: 14px; padding: 16px; border-radius: 20px;
+        background: linear-gradient(180deg, rgba(255,246,222,.12), rgba(255,246,222,.05));
+        border: 1px solid rgba(255,227,160,.16);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      }
+      .fa-wallet-line { display:flex; align-items:center; gap:10px; color:#ffe9b2; font-weight:900; letter-spacing:.03em; }
+      .fa-star-icon {
+        display:inline-grid; place-items:center; width:30px; height:30px; border-radius:10px;
+        background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
+        color:#1f160a; font-size:17px; box-shadow: 0 8px 18px rgba(255,205,74,.22), inset 0 1px 1px rgba(255,255,255,.6);
+      }
+      #fa-current-stars { display:block; margin-top:10px; font-size:30px; letter-spacing:.02em; color:#fff8e8; }
+      .fa-wallet-mini { margin-top:6px; color: var(--muted); font-size: 13px; }
       .fa-stats-grid { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .fa-stat-box, .fa-info-box { background: rgba(255,245,232,.05); border-radius: 18px; border: 1px solid rgba(255,237,206,.08); }
       .fa-stat-box { padding: 14px; }
@@ -1152,7 +1250,7 @@
       .fa-board-wrap .fa-place-action.hidden,
       .fa-board-wrap .fa-countdown.hidden { display: none; }
       body.fa-roomlist-lock { overflow:hidden !important; overscroll-behavior:none; }
-      body.fa-roomlist-lock .fa-open-rooms-list { touch-action: pan-x; }
+      body.fa-roomlist-lock .fa-open-rooms-list { touch-action: pan-y !important; overflow-x: hidden !important; overflow-y: auto !important; }
 
       .fa-confirm-card { width: min(100%, 420px); }
       .fa-confirm-icon {
@@ -1245,6 +1343,7 @@
         .fa-start-profile { flex-direction: column; text-align: center; }
         .fa-start-fields { width: 100%; text-align: left; }
         .fa-room-actions { grid-template-columns: 1fr 1fr; }
+        .fa-room-stake-select { grid-column: 1 / -1; }
 
         .fa-friend-panel.join-list-open .fa-room-presence,
         .fa-friend-panel.join-list-open .fa-start-profile { display:none !important; }
@@ -1259,10 +1358,37 @@
         .fa-friend-panel.create-room-open #fa-join-room-btn { display:none !important; }
         .fa-room-actions input { grid-column: 1 / -1; }
         .fa-room-presence-slots { grid-template-columns: 1fr; }
-        .fa-open-rooms-list { display:flex; flex-wrap: nowrap !important; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 8px; justify-content:flex-start; touch-action: pan-x; overscroll-behavior-x: contain; }
-        .fa-open-rooms-list.single-room { overflow-x: hidden; justify-content: center; }
-        .fa-room-item { grid-template-columns: minmax(0,1fr) auto; min-width: 86vw; width: 86vw; max-width: 360px; flex: 0 0 86vw; scroll-snap-align: start; }
-        .fa-open-rooms-list.single-room .fa-room-item { min-width: min(100%, 360px); width: min(100%, 360px); flex: 0 1 min(100%, 360px); }
+        .fa-open-rooms { max-height: 46vh; display: flex; flex-direction: column; }
+        .fa-open-rooms-list {
+          display: grid !important;
+          grid-template-columns: minmax(0, 1fr) !important;
+          flex-direction: column;
+          flex-wrap: nowrap !important;
+          gap: 10px;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          max-height: 32vh;
+          width: 100%;
+          -webkit-overflow-scrolling: touch;
+          padding-bottom: 2px;
+          justify-content:flex-start;
+          align-items: stretch;
+          touch-action: pan-y !important;
+          overscroll-behavior-y: contain;
+          scroll-snap-type: y proximity;
+        }
+        .fa-open-rooms-list.single-room { overflow-y: auto !important; overflow-x: hidden !important; justify-content: flex-start; }
+        .fa-room-item {
+          display: grid;
+          grid-template-columns: minmax(0,1fr) auto;
+          min-width: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          flex: none !important;
+          margin: 0;
+          scroll-snap-align: start;
+        }
+        .fa-open-rooms-list.single-room .fa-room-item { min-width: 0 !important; width: 100% !important; max-width: 100% !important; flex: none !important; }
         .fa-board-wrap { min-height: 72vh; }
       }
     `;
@@ -1302,6 +1428,8 @@
     ui.sideAvatar = root.querySelector('#fa-side-avatar');
     ui.sideName = root.querySelector('#fa-side-name');
     ui.connectionNote = root.querySelector('#fa-connection-note');
+    ui.currentStars = root.querySelector('#fa-current-stars');
+    ui.currentStakeNote = root.querySelector('#fa-current-stake-note');
     ui.leaderPreview = root.querySelector('#fa-leader-preview');
     ui.leaderModal = root.querySelector('#fa-leaderboard-modal');
     ui.leaderList = root.querySelector('#fa-leaderboard-list');
@@ -1339,6 +1467,7 @@
     ui.modeCreateRoom = root.querySelector('#fa-mode-create-room');
     ui.roomTitleInput = root.querySelector('#fa-room-title-input');
     ui.roomCodeInput = root.querySelector('#fa-room-code-input');
+    ui.roomStakeSelect = root.querySelector('#fa-room-stake-select');
     ui.roomCodeView = root.querySelector('#fa-room-code-view');
     ui.roomStatus = root.querySelector('#fa-room-status');
     ui.roomActions = ui.roomTitleInput ? ui.roomTitleInput.parentElement : null;
@@ -1398,6 +1527,10 @@
     });
     if (ui.roomCodeInput) ui.roomCodeInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') joinOnlineRoom();
+    });
+    if (ui.roomStakeSelect) ui.roomStakeSelect.addEventListener('change', () => {
+      state.online.starWager = getSelectedStarWager();
+      syncUI();
     });
     ui.leaderModal.addEventListener('click', e => {
       if (e.target === ui.leaderModal) closeLeaderboard();
@@ -1853,17 +1986,20 @@
 
     if (!state.profile) {
       const id = uid();
-      state.profile = {
+      state.profile = ensureProfileEconomy({
         id,
         nickname,
         avatar: getAvatarBySeed(id),
         rank: getCurrentRankFromState(),
-      gradeScore: state.gradeScore,
-        provider: 'local'
-      };
+        gradeScore: state.gradeScore,
+        provider: 'local',
+        stars: STAR_BALANCE_DEFAULT,
+        lastStarSettleKey: ''
+      });
     } else {
       state.profile.nickname = nickname;
       state.profile.avatar = state.profile.avatar || getAvatarBySeed(state.profile.id);
+      ensureProfileEconomy(state.profile);
     }
 
     const duplicated = await state.remoteAdapter.nameExists(state.profile.nickname, state.profile.id);
@@ -1875,12 +2011,15 @@
     }
 
     state.lobbyConfirmed = true;
+    if (!rankedAi && isOnlineMode() && !starResult && winner === 0) {
+      text = `Draw. No stars changed · Balance ★ ${formatNumber(getCurrentStars())}`;
+    }
     const weeklySeason = ensureWeeklySeason();
-    if (state.profile) {
-      if (state.profile.weeklyKey !== weeklySeason.key) { state.profile.weeklyKey = weeklySeason.key; state.profile.weeklyWins = 0; state.profile.weeklyLosses = 0; state.profile.weeklyGames = 0; }
-      state.profile.weeklyGames = Number(state.profile.weeklyGames || 0) + 1;
-      if (winner === mySide) state.profile.weeklyWins = Number(state.profile.weeklyWins || 0) + 1;
-      else if (winner === oppSide) state.profile.weeklyLosses = Number(state.profile.weeklyLosses || 0) + 1;
+    if (state.profile && state.profile.weeklyKey !== weeklySeason.key) {
+      state.profile.weeklyKey = weeklySeason.key;
+      state.profile.weeklyWins = 0;
+      state.profile.weeklyLosses = 0;
+      state.profile.weeklyGames = 0;
     }
     saveState();
     renderLobbyStatus();
@@ -1888,7 +2027,7 @@
     updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
-    ui.nickNote.textContent = 'Nickname locked. Press Game Start, or use Play Fullscreen on mobile.';
+    ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
     syncLobbyActions();
     syncUI();
     return true;
@@ -2231,7 +2370,7 @@
     try {
       if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
         stopOnlinePresence();
-        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0 };
+        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
         if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
         syncUI();
         return;
@@ -2277,7 +2416,7 @@
       console.log('leave room error ignored:', e);
     }
     stopOnlinePresence();
-        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0 };
+        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     setRoomListLocked(false);
     syncUI();
@@ -2321,6 +2460,8 @@
     state.online.guestId = room.guestId || '';
     state.online.hostName = room.hostNickname || '';
     state.online.guestName = room.guestNickname || '';
+    state.online.starWager = STAR_WAGER_OPTIONS.includes(Number(room.starWager)) ? Number(room.starWager) : STAR_WAGER_OPTIONS[0];
+    state.online.starWager = roomWager;
     const hostAlive = isRoomRoleAlive(room, 'host');
     const guestAlive = isRoomRoleAlive(room, 'guest');
     if (!hostAlive && state.online.role === 'guest') {
@@ -2456,13 +2597,14 @@
       const accessCode = escapeHtml(room.accessCode || room.code || '');
       const roomId = escapeHtml(room.id || room._key || '');
       const locked = !!(room.accessCode || room.code);
+      const stake = STAR_WAGER_OPTIONS.includes(Number(room.starWager)) ? Number(room.starWager) : STAR_WAGER_OPTIONS[0];
       const badge = locked
-        ? `<div class="fa-room-item-badge locked">Private room · join with code</div>`
-        : `<div class="fa-room-item-badge open">Open room · tap Join</div>`;
+        ? `<div class="fa-room-item-badge locked">Private room · ★ ${formatNumber(stake)}</div>`
+        : `<div class="fa-room-item-badge open">Open room · ★ ${formatNumber(stake)}</div>`;
       const action = locked
         ? `<button class="fa-btn ghost tiny" data-room-locked="${roomId}">Use Code</button>`
         : `<button class="fa-btn tiny" data-room-id="${roomId}">Join</button>`;
-      return `<div class="fa-room-item"><div><div class="fa-room-item-title">${title}</div><div class="fa-room-item-meta">Host ${host}${locked ? ' · Private' : ' · Open'}</div>${badge}</div>${action}</div>`;
+      return `<div class="fa-room-item"><div><div class="fa-room-item-title">${title}</div><div class="fa-room-item-meta">Host ${host}${locked ? ' · Private' : ' · Open'} · Stake ★ ${formatNumber(stake)}</div>${badge}</div>${action}</div>`;
     }).join('');
     ui.openRoomsList.querySelectorAll('[data-room-id]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -2544,6 +2686,12 @@
       return;
     }
     await removeMyOtherRooms();
+    const starWager = getSelectedStarWager();
+    if (!canAffordStars(starWager)) {
+      if (ui.roomStatus) ui.roomStatus.textContent = `Not enough stars. You need ★ ${formatNumber(starWager)}.`;
+      syncUI();
+      return;
+    }
     const accessCode = normalizeRoomCode(ui.roomCodeInput?.value);
     const roomTitle = sanitizeRoomTitle(ui.roomTitleInput?.value) || `${state.profile.nickname}'s Room`;
     const roomRef = firebase.database().ref('omokRooms').push();
@@ -2567,6 +2715,8 @@
       winner: 0,
       winningLine: [],
       moveCount: 0,
+      starWager,
+      starRewardRate: STAR_WIN_RATE,
       createdAt: now,
       hostPingAt: now,
       guestPingAt: 0,
@@ -2586,8 +2736,9 @@
     state.online.hostName = state.profile.nickname;
     state.online.guestName = '';
     state.online.lastGuestSeenId = '';
+    state.online.starWager = starWager;
     playRoomEventChime('create');
-    if (ui.roomStatus) ui.roomStatus.textContent = accessCode ? 'Private room created. Share the room title and code.' : 'Open room created. Your friend can join from the room list.';
+    if (ui.roomStatus) ui.roomStatus.textContent = accessCode ? `Private room created. Share the room title and code. Stake ★ ${formatNumber(starWager)}.` : `Open room created. Your friend can join from the room list. Stake ★ ${formatNumber(starWager)}.`;
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     setRoomListLocked(false);
     attachOnlineRoom(roomId);
@@ -2648,6 +2799,11 @@
       ui.roomStatus.textContent = 'This room is already full.';
       return;
     }
+    const roomWager = STAR_WAGER_OPTIONS.includes(Number(room.starWager)) ? Number(room.starWager) : STAR_WAGER_OPTIONS[0];
+    if (!canAffordStars(roomWager)) {
+      ui.roomStatus.textContent = `Not enough stars for this room. Need ★ ${formatNumber(roomWager)}.`;
+      return;
+    }
     room.guestId = room.guestId || state.profile.id;
     room.guestNickname = room.guestNickname || state.profile.nickname;
     room.hostReady = !!room.hostReady;
@@ -2673,7 +2829,7 @@
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     setRoomListLocked(false);
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
-    if (ui.roomStatus) ui.roomStatus.textContent = `Joined ${room.title || 'room'} · Press Ready to enter the duel.`;
+    if (ui.roomStatus) ui.roomStatus.textContent = `Joined ${room.title || 'room'} · Stake ★ ${formatNumber(roomWager)} · Press Ready to enter the duel.`;
     openStartScreen();
     syncUI();
   }
@@ -2694,6 +2850,14 @@
       openStartScreen();
       state.started = false;
       state.phase = 'intro';
+      syncUI();
+      return;
+    }
+
+    const roomWager = STAR_WAGER_OPTIONS.includes(Number(room.starWager)) ? Number(room.starWager) : STAR_WAGER_OPTIONS[0];
+    if (!canAffordStars(roomWager)) {
+      ui.roomStatus.textContent = `Not enough stars for this room. Need ★ ${formatNumber(roomWager)}.`;
+      openStartScreen();
       syncUI();
       return;
     }
@@ -2789,10 +2953,10 @@
     const result = state.lastResult;
     const summary = `Record ${state.totalWins}W · ${state.totalLosses}L · Best Streak ${state.bestStreak}`;
     if (isOnlineMode()) {
-      if (!(state.online.roomId || state.online.roomCode)) ui.lobbyText.textContent = 'Create your room title or open the room list, then start your online friendly match.';
-      else if (state.online.status === 'waiting') ui.lobbyText.textContent = `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' (' + state.online.roomCode + ')' : ''} is ready. ${state.online.roomCode ? 'Share the code and wait for your friend.' : 'Your friend can join from the room list.'}`;
-      else if (state.online.status === 'ready') ui.lobbyText.textContent = state.online.role === 'host' ? `${state.online.guestReady ? 'Guest ready. Accept to begin the duel.' : 'Waiting for your friend to press Ready.'}` : `${state.online.guestReady ? 'Ready locked. Waiting for the host to start.' : 'Press Ready to join the duel.'}`;
-      else ui.lobbyText.textContent = `Online room ${state.online.roomTitle || (state.online.roomCode || 'Open Room')} synced.`;
+      if (!(state.online.roomId || state.online.roomCode)) ui.lobbyText.textContent = 'Create your room title, choose a star stake, or open the room list, then start your online friendly match.';
+      else if (state.online.status === 'waiting') ui.lobbyText.textContent = `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' (' + state.online.roomCode + ')' : ''} is ready with ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}. ${state.online.roomCode ? 'Share the code and wait for your friend.' : 'Your friend can join from the room list.'}`;
+      else if (state.online.status === 'ready') ui.lobbyText.textContent = state.online.role === 'host' ? `${state.online.guestReady ? `Guest ready. Accept to begin the duel for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Waiting for your friend to press Ready for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`}` : `${state.online.guestReady ? `Ready locked. Waiting for the host to start ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Press Ready to join the duel for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`}`;
+      else ui.lobbyText.textContent = `Online room ${state.online.roomTitle || (state.online.roomCode || 'Open Room')} synced · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`;
     } else {
       ui.lobbyText.textContent = state.profile ? 'Press the center button to begin your next ranked match.' : 'Create your name, then begin your climb on the ladder.';
     }
@@ -2862,15 +3026,15 @@
         state.totalLosses = 0;
         state.totalGames = 0;
         state.gradeScore = 0;
-        if (state.profile) state.profile.rank = getCurrentRankFromState();
-        const weeklySeason = ensureWeeklySeason();
-    if (state.profile) {
-      if (state.profile.weeklyKey !== weeklySeason.key) { state.profile.weeklyKey = weeklySeason.key; state.profile.weeklyWins = 0; state.profile.weeklyLosses = 0; state.profile.weeklyGames = 0; }
-      state.profile.weeklyGames = Number(state.profile.weeklyGames || 0) + 1;
-      if (winner === mySide) state.profile.weeklyWins = Number(state.profile.weeklyWins || 0) + 1;
-      else if (winner === oppSide) state.profile.weeklyLosses = Number(state.profile.weeklyLosses || 0) + 1;
-    }
-    saveState();
+        if (state.profile) {
+          state.profile.rank = getCurrentRankFromState();
+          const weeklySeason = ensureWeeklySeason();
+          state.profile.weeklyKey = weeklySeason.key;
+          state.profile.weeklyWins = 0;
+          state.profile.weeklyLosses = 0;
+          state.profile.weeklyGames = 0;
+        }
+        saveState();
         syncProfileToLeaderboard();
         syncUI();
         renderLeaderboard();
@@ -2932,6 +3096,10 @@
     ui.totalLosses.textContent = String(state.totalLosses);
     ui.totalGames.textContent = String(state.totalGames);
     ui.bestTier.textContent = String(state.bestStreak);
+    const walletStars = getCurrentStars();
+    const activeStake = isOnlineMode() ? (state.online.starWager || STAR_WAGER_OPTIONS[0]) : getSelectedStarWager();
+    if (ui.currentStars) ui.currentStars.textContent = formatNumber(walletStars);
+    if (ui.currentStakeNote) ui.currentStakeNote.textContent = isOnlineMode() ? `Room stake ready · ★ ${formatNumber(activeStake)}` : `Create room stake · ★ ${formatNumber(activeStake)}`;
     ui.scaleLine.textContent = isOnlineMode() ? ((state.online.roomId || state.online.roomCode) ? `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' · ' + state.online.roomCode : ' · Open'}` : 'Friend Match') : getAiTitle();
     ui.reviewLine.textContent = state.review.length ? `${state.reviewIndex + 1} / ${state.review.length}` : 'Ready';
     if (ui.opponentName) ui.opponentName.textContent = isOnlineMode() ? (state.online.opponentName || 'Friend') : 'FA AI';
@@ -2939,8 +3107,8 @@
     if (ui.friendPanel) ui.friendPanel.classList.toggle('hidden', !isOnlineMode());
     if (ui.modeAi) ui.modeAi.classList.toggle('active', !isOnlineMode());
     if (ui.modeFriend) ui.modeFriend.classList.toggle('active', isOnlineMode());
-    if (ui.roomCodeView) ui.roomCodeView.textContent = (state.online.roomId || state.online.roomCode) ? `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' · ' + state.online.roomCode : ' · Open'}` : 'Room: ——';
-    if (ui.roomStatus) ui.roomStatus.textContent = isOnlineMode() ? (state.online.status === 'ready' ? (state.online.role === 'host' ? (state.online.guestReady ? 'Guest ready · accept to start.' : 'Waiting for your friend to press Ready.') : (state.online.guestReady ? 'Ready locked · waiting for host start.' : 'Press Ready to enter the duel.')) : state.online.status === 'waiting' ? 'Waiting for friend to join.' : state.online.status === 'playing' ? `${state.turn === getMySide() ? 'Your turn' : 'Friend turn'} · ${Math.max(0, state.turnSecondsLeft)}s` : state.online.status === 'countdown' ? 'Starting now...' : ((state.online.panelMode || 'none') === 'join' ? 'Choose an open room to join.' : (state.online.panelMode === 'create' ? 'Enter a room title and optional code.' : 'Choose Create Room or Join Room.'))) : 'Create or join a room.';
+    if (ui.roomCodeView) ui.roomCodeView.textContent = (state.online.roomId || state.online.roomCode) ? `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' · ' + state.online.roomCode : ' · Open'} · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}` : 'Room: ——';
+    if (ui.roomStatus) ui.roomStatus.textContent = isOnlineMode() ? (state.online.status === 'ready' ? (state.online.role === 'host' ? (state.online.guestReady ? `Guest ready · accept to start · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Waiting for your friend to press Ready · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`) : (state.online.guestReady ? `Ready locked · waiting for host start · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Press Ready to enter the duel · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`)) : state.online.status === 'waiting' ? `Waiting for friend to join · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : state.online.status === 'playing' ? `${state.turn === getMySide() ? 'Your turn' : 'Friend turn'} · ${Math.max(0, state.turnSecondsLeft)}s · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}` : state.online.status === 'countdown' ? `Starting now... · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}` : ((state.online.panelMode || 'none') === 'join' ? 'Choose an open room to join.' : (state.online.panelMode === 'create' ? 'Enter a room title, optional code, and star stake.' : 'Choose Create Room or Join Room.'))) : 'Create or join a room.';
     renderOnlinePresence();
     updateFriendRoomPanelVisibility();
     ui.connectionNote.textContent = isOnlineMode() ? ((state.online.roomId || state.online.roomCode) ? `Online room ${state.online.roomTitle || (state.online.roomCode || 'Open')}` : 'Firebase online friendly ready') : (state.remoteAdapter.mode === 'local-ready' ? 'Local ladder mode · Firebase ready' : 'Firebase connected');
@@ -3009,7 +3177,7 @@
   }
 
   async function syncProfileToLeaderboard() {
-    if (!state.profile || state.totalGames <= 0) return;
+    if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -3024,7 +3192,8 @@
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: ensureWeeklySeason().key
+      weeklyKey: ensureWeeklySeason().key,
+      stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
     upsertWeeklyLeaderboard(entry);
@@ -3111,7 +3280,8 @@
     if (full) {
       const activeBoard = state.leaderboardTab === 'weekly' ? weeklyBoard : totalBoard;
       const weeklyHead = state.leaderboardTab === 'weekly' ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)}</div>` : '';
-      ui.leaderList.innerHTML = weeklyHead + (activeBoard.length ? activeBoard.slice(0,30).map((p,i)=>buildRow(p,i,state.leaderboardTab === 'weekly')).join('') : empty);
+      const displayLimit = state.leaderboardTab === 'weekly' ? 7 : 30;
+      ui.leaderList.innerHTML = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab === 'weekly')).join('') : empty);
     }
   }
 
@@ -3246,33 +3416,48 @@
 
   async function finishGame(winner, line, fromRemote = false) {
     state.pendingLock = false;
-    state.totalGames += 1;
+    const rankedAi = isRankedAiMatch();
+    if (rankedAi) state.totalGames += 1;
     let title = 'Draw';
     let text = 'No winner this round.';
     const mySide = getMySide();
     const oppSide = getOpponentSide();
+    let starResult = null;
+    if (isOnlineMode()) {
+      starResult = applyStarSettlementForResult(winner, state.online.starWager || STAR_WAGER_OPTIONS[0], state.online.lastFinishedAt, state.online.roomId || state.online.roomCode);
+    }
     if (winner === mySide) {
-      state.totalWins += 1;
-      applyRankedResult(true);
-      state.streak += 1;
-      state.bestStreak = Math.max(state.bestStreak, state.streak);
+      if (rankedAi) {
+        state.totalWins += 1;
+        applyRankedResult(true);
+        state.streak += 1;
+        state.bestStreak = Math.max(state.bestStreak, state.streak);
+      }
       title = 'Victory!';
-      text = isOnlineMode() ? `Beautiful finish. ${getCurrentRankFromState()} · Friendly win secured.` : `Elegant finish. ${getCurrentRankFromState()} · Streak ${state.streak}`;
+      text = rankedAi
+        ? `Elegant finish. ${getCurrentRankFromState()} · Streak ${state.streak}`
+        : (starResult ? `Friendly match win secured. +★ ${formatNumber(starResult.delta)} · Balance ★ ${formatNumber(starResult.balance)}` : `Friendly match win secured.`);
       triggerWinBurst('win');
       triggerHaptic('win');
       fanfare(true);
     } else if (winner === oppSide) {
-      state.totalLosses += 1;
-      applyRankedResult(false);
-      state.streak = 0;
+      if (rankedAi) {
+        state.totalLosses += 1;
+        applyRankedResult(false);
+        state.streak = 0;
+      }
       title = 'Defeat!';
-      text = isOnlineMode() ? `Your friend took the round. ${getCurrentRankFromState()} · Try again.` : `The AI held the line. ${getCurrentRankFromState()} · Challenge ${getAiTitle()}`;
+      text = rankedAi
+        ? `The AI held the line. ${getCurrentRankFromState()} · Challenge ${getAiTitle()}`
+        : (starResult ? `Friendly match finished. -★ ${formatNumber(Math.abs(starResult.delta))} · Balance ★ ${formatNumber(starResult.balance)}` : `Friendly match finished. Try again.`);
       triggerWinBurst('loss');
       triggerHaptic('loss');
       fanfare(false);
+    } else if (!rankedAi && isOnlineMode()) {
+      text = `Draw. No stars changed · Balance ★ ${formatNumber(getCurrentStars())}`;
     }
     const weeklySeason = ensureWeeklySeason();
-    if (state.profile) {
+    if (rankedAi && state.profile) {
       if (state.profile.weeklyKey !== weeklySeason.key) { state.profile.weeklyKey = weeklySeason.key; state.profile.weeklyWins = 0; state.profile.weeklyLosses = 0; state.profile.weeklyGames = 0; }
       state.profile.weeklyGames = Number(state.profile.weeklyGames || 0) + 1;
       if (winner === mySide) state.profile.weeklyWins = Number(state.profile.weeklyWins || 0) + 1;
