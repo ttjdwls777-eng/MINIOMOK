@@ -484,11 +484,20 @@
         <div class="fa-grid"></div>
 
         <div class="fa-topbar">
-          <div class="fa-brand">
-            <div class="fa-brand-badge">FA</div>
-            <div>
-              <div class="fa-brand-title">${APP_NAME}</div>
-              <div class="fa-brand-sub">Prestige Gomoku Arena</div>
+          <div class="fa-brand-area">
+            <div class="fa-brand">
+              <div class="fa-brand-badge">FA</div>
+              <div>
+                <div class="fa-brand-title">${APP_NAME}</div>
+                <div class="fa-brand-sub">Prestige Gomoku Arena</div>
+              </div>
+            </div>
+            <div class="fa-top-wallet" id="fa-top-wallet">
+              <div class="fa-top-wallet-icon">★</div>
+              <div class="fa-top-wallet-copy">
+                <div class="fa-top-wallet-label">Current Stars</div>
+                <div class="fa-top-wallet-value" id="fa-top-current-stars">10,000</div>
+              </div>
             </div>
           </div>
           <div class="fa-top-actions">
@@ -555,9 +564,9 @@
                         <input id="fa-room-title-input" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Room title" />
                         <input id="fa-room-code-input" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Enter room code (optional)" />
                         <select id="fa-room-stake-select" class="fa-room-stake-select" aria-label="Star stake">
-                          <option value="100">★ Star 100</option>
-                          <option value="1000">★ Star 1,000</option>
-                          <option value="10000">★ Star 10,000</option>
+                          <option value="100">Bronze Table · ★ 100</option>
+                          <option value="1000">Silver Table · ★ 1,000</option>
+                          <option value="10000">Gold Table · ★ 10,000</option>
                         </select>
                         <button class="fa-btn" id="fa-create-room-btn">Create Room</button>
                         <button class="fa-btn" id="fa-join-room-btn">Join Room</button>
@@ -674,9 +683,18 @@
               <div class="fa-panel-sub">Leaderboard-ready profile for local play and Firebase sync.</div>
               <div class="fa-profile-inline">
                 <div class="fa-avatar self" id="fa-side-avatar"></div>
-                <div>
-                  <div class="fa-name" id="fa-side-name">Guest</div>
-                  <div class="fa-mini-note" id="fa-connection-note">Local ladder mode</div>
+                <div class="fa-profile-main-meta">
+                  <div>
+                    <div class="fa-name" id="fa-side-name">Guest</div>
+                    <div class="fa-mini-note" id="fa-connection-note">Local ladder mode</div>
+                  </div>
+                  <div class="fa-profile-stars" id="fa-profile-stars">
+                    <span class="fa-star-icon mini" aria-hidden="true">★</span>
+                    <div class="fa-profile-stars-copy">
+                      <span class="fa-profile-stars-label">Stars</span>
+                      <strong id="fa-profile-current-stars">10,000</strong>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -809,8 +827,26 @@
         max-width: 1440px; margin: 0 auto; padding: 18px 22px;
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
       }
+      .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
       .fa-top-actions { display: flex; gap: 10px; }
       .fa-brand { display: flex; align-items: center; gap: 14px; }
+      .fa-top-wallet {
+        display:flex; align-items:center; gap:12px;
+        padding: 12px 16px; border-radius: 20px;
+        background: linear-gradient(180deg, rgba(255,246,222,.16), rgba(255,246,222,.06));
+        border:1px solid rgba(255,226,154,.2);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 14px 28px rgba(0,0,0,.16);
+        min-width: 220px;
+      }
+      .fa-top-wallet-icon {
+        width: 40px; height: 40px; border-radius: 14px; display:grid; place-items:center;
+        background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
+        color:#1f160a; font-size:22px; font-weight:900;
+        box-shadow: 0 10px 20px rgba(255,205,74,.24), inset 0 1px 1px rgba(255,255,255,.6);
+      }
+      .fa-top-wallet-copy { display:flex; flex-direction:column; min-width:0; }
+      .fa-top-wallet-label { font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:rgba(255,238,197,.72); font-weight:800; }
+      .fa-top-wallet-value { font-size:22px; font-weight:900; color:#fff8e8; line-height:1.1; margin-top:2px; }
       .fa-brand-badge {
         width: 52px; height: 52px; border-radius: 16px;
         display: grid; place-items: center;
@@ -827,10 +863,28 @@
       .fa-friend-top { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
       .fa-room-code { font-weight:900; letter-spacing:.08em; color:#ffe7b4; }
       .fa-room-status { color: var(--muted); font-size: 13px; }
-      .fa-room-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,160px) repeat(3, auto); gap:10px; }
+      .fa-room-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,200px) repeat(3, auto); gap:10px; }
       .fa-room-actions input, .fa-room-stake-select { min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
       .fa-room-actions input::placeholder { color: rgba(255,248,239,.48); }
-      .fa-room-stake-select { appearance:none; font-weight:800; cursor:pointer; }
+      .fa-room-stake-select {
+        appearance:none; font-weight:900; cursor:pointer;
+        padding: 12px 46px 12px 16px;
+        background:
+          linear-gradient(180deg, rgba(255,248,230,.16), rgba(255,234,193,.05)),
+          radial-gradient(circle at 18% 30%, rgba(255,223,129,.28), transparent 30%),
+          rgba(255,255,255,.06);
+        border:1px solid rgba(255,226,154,.24);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 10px 22px rgba(0,0,0,.12);
+        color:#fff5dc;
+        letter-spacing:.01em;
+        background-image:
+          linear-gradient(180deg, rgba(255,248,230,.16), rgba(255,234,193,.05)),
+          radial-gradient(circle at 18% 30%, rgba(255,223,129,.28), transparent 30%),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5 10 12.5 15 7.5' stroke='%23f7e1a4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat:no-repeat,no-repeat,no-repeat;
+        background-position:center center, center center, right 14px center;
+        background-size:auto, auto, 16px;
+      }
       .fa-room-stake-select option { color:#1a120b; }
       .fa-room-actions.room-locked { grid-template-columns: 1fr; }
       .fa-room-actions.room-locked .fa-btn { width: 100%; }
@@ -1130,6 +1184,16 @@
         margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
         background: rgba(255,245,232,.05); border: 1px solid rgba(255,237,206,.08); border-radius: 18px;
       }
+      .fa-profile-main-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-width:0; }
+      .fa-profile-stars {
+        display:flex; align-items:center; gap:10px;
+        padding:10px 12px; border-radius:16px;
+        background: linear-gradient(180deg, rgba(255,246,222,.14), rgba(255,246,222,.04));
+        border:1px solid rgba(255,227,160,.16); flex-shrink:0;
+      }
+      .fa-profile-stars-copy { display:flex; flex-direction:column; }
+      .fa-profile-stars-label { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,238,197,.72); font-weight:800; }
+      #fa-profile-current-stars { font-size:17px; line-height:1.1; color:#fff8e8; }
       .fa-wallet-box {
         margin-top: 14px; padding: 16px; border-radius: 20px;
         background: linear-gradient(180deg, rgba(255,246,222,.12), rgba(255,246,222,.05));
@@ -1142,6 +1206,7 @@
         background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
         color:#1f160a; font-size:17px; box-shadow: 0 8px 18px rgba(255,205,74,.22), inset 0 1px 1px rgba(255,255,255,.6);
       }
+      .fa-star-icon.mini { width:26px; height:26px; border-radius:9px; font-size:15px; }
       #fa-current-stars { display:block; margin-top:10px; font-size:30px; letter-spacing:.02em; color:#fff8e8; }
       .fa-wallet-mini { margin-top:6px; color: var(--muted); font-size: 13px; }
       .fa-stats-grid { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1316,6 +1381,9 @@
         .fa-main { grid-template-columns: 1fr; }
       }
       @media (max-width: 740px) {
+        .fa-brand-area { width:100%; justify-content:space-between; }
+        .fa-top-wallet { min-width: 0; flex:1 1 100%; }
+        .fa-profile-main-meta { flex-direction:column; align-items:flex-start; }
         .fa-stage, .fa-overlay {
           align-items: start;
           overflow-y: auto;
@@ -1429,6 +1497,8 @@
     ui.sideName = root.querySelector('#fa-side-name');
     ui.connectionNote = root.querySelector('#fa-connection-note');
     ui.currentStars = root.querySelector('#fa-current-stars');
+    ui.topCurrentStars = root.querySelector('#fa-top-current-stars');
+    ui.profileCurrentStars = root.querySelector('#fa-profile-current-stars');
     ui.currentStakeNote = root.querySelector('#fa-current-stake-note');
     ui.leaderPreview = root.querySelector('#fa-leader-preview');
     ui.leaderModal = root.querySelector('#fa-leaderboard-modal');
@@ -3097,6 +3167,8 @@
     const walletStars = getCurrentStars();
     const activeStake = isOnlineMode() ? (state.online.starWager || STAR_WAGER_OPTIONS[0]) : getSelectedStarWager();
     if (ui.currentStars) ui.currentStars.textContent = formatNumber(walletStars);
+    if (ui.topCurrentStars) ui.topCurrentStars.textContent = formatNumber(walletStars);
+    if (ui.profileCurrentStars) ui.profileCurrentStars.textContent = formatNumber(walletStars);
     if (ui.currentStakeNote) ui.currentStakeNote.textContent = isOnlineMode() ? `Room stake ready · ★ ${formatNumber(activeStake)}` : `Create room stake · ★ ${formatNumber(activeStake)}`;
     ui.scaleLine.textContent = isOnlineMode() ? ((state.online.roomId || state.online.roomCode) ? `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' · ' + state.online.roomCode : ' · Open'}` : 'Friend Match') : getAiTitle();
     ui.reviewLine.textContent = state.review.length ? `${state.reviewIndex + 1} / ${state.review.length}` : 'Ready';
