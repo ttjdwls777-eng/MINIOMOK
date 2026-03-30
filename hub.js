@@ -2011,9 +2011,6 @@
     }
 
     state.lobbyConfirmed = true;
-    if (!rankedAi && isOnlineMode() && !starResult && winner === 0) {
-      text = `Draw. No stars changed · Balance ★ ${formatNumber(getCurrentStars())}`;
-    }
     const weeklySeason = ensureWeeklySeason();
     if (state.profile && state.profile.weeklyKey !== weeklySeason.key) {
       state.profile.weeklyKey = weeklySeason.key;
@@ -2027,9 +2024,8 @@
     updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
-    ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
-    syncLobbyActions();
     syncUI();
+    if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
     return true;
   }
 
@@ -2461,7 +2457,6 @@
     state.online.hostName = room.hostNickname || '';
     state.online.guestName = room.guestNickname || '';
     state.online.starWager = STAR_WAGER_OPTIONS.includes(Number(room.starWager)) ? Number(room.starWager) : STAR_WAGER_OPTIONS[0];
-    state.online.starWager = roomWager;
     const hostAlive = isRoomRoleAlive(room, 'host');
     const guestAlive = isRoomRoleAlive(room, 'guest');
     if (!hostAlive && state.online.role === 'guest') {
@@ -2824,6 +2819,7 @@
     state.online.guestId = room.guestId || '';
     state.online.hostName = room.hostNickname || '';
     state.online.guestName = room.guestNickname || '';
+    state.online.starWager = roomWager;
     if (state.online.role === 'guest') playRoomEventChime('join');
     attachOnlineRoom(roomId);
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
@@ -3154,7 +3150,9 @@
 
     if (state.profile) {
       ui.nickInput.value = state.profile.nickname || '';
-      ui.nickNote.textContent = 'Ready for ranked play and Firebase sync.';
+      ui.nickNote.textContent = state.lobbyConfirmed
+        ? 'Nickname saved. Ready for ranked play and Firebase sync.'
+        : 'Ready for ranked play and Firebase sync.';
     } else {
       ui.nickInput.value = '';
     }
