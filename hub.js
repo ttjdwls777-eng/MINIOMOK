@@ -653,8 +653,10 @@
                 <div class="fa-overlay hidden" id="fa-overlay">
                   <div class="fa-overlay-card">
                     <div class="fa-overlay-title" id="fa-overlay-title">Victory</div>
+                    <div class="fa-overlay-stars hidden" id="fa-overlay-stars">+★ 850</div>
                     <div class="fa-overlay-text" id="fa-overlay-text"></div>
                     <div class="fa-overlay-actions">
+                      <button class="fa-btn primary hidden" id="fa-overlay-confirm-btn">Confirm</button>
                       <button class="fa-btn primary" id="fa-rematch-btn">Play Again</button>
                       <button class="fa-btn" id="fa-review-btn">Review</button>
                       <button class="fa-btn ghost" id="fa-overlay-lobby-btn">Lobby</button>
@@ -1076,6 +1078,26 @@
       .fa-stage-title, .fa-overlay-title, .fa-confirm-title {
         font-size: 30px; font-weight: 900; letter-spacing: .03em; margin-top: 10px;
       }
+      .fa-overlay-card.result-pop {
+        width: min(100%, 460px);
+        padding: 28px 24px 24px;
+        background:
+          linear-gradient(180deg, rgba(84,53,27,.98), rgba(43,26,13,.98)),
+          radial-gradient(circle at top, rgba(255,226,154,.14), transparent 42%);
+        border: 1px solid rgba(255,228,179,.18);
+        box-shadow: 0 30px 90px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.08);
+      }
+      .fa-overlay-stars {
+        margin-top: 14px;
+        font-size: 34px;
+        line-height: 1.1;
+        font-weight: 1000;
+        letter-spacing: .01em;
+        color: #fff5d6;
+        text-shadow: 0 10px 28px rgba(0,0,0,.26);
+      }
+      .fa-overlay-stars.positive { color: #ffe89b; }
+      .fa-overlay-stars.negative { color: #ffb8a5; }
       .fa-stage-text, .fa-overlay-text, .fa-confirm-text {
         font-size: 14px; color: var(--muted); margin-top: 12px; line-height: 1.6;
       }
@@ -1438,6 +1460,7 @@
     ui.ctx = ui.board.getContext('2d');
     ui.overlay = root.querySelector('#fa-overlay');
     ui.overlayTitle = root.querySelector('#fa-overlay-title');
+    ui.overlayStars = root.querySelector('#fa-overlay-stars');
     ui.overlayText = root.querySelector('#fa-overlay-text');
     ui.turnLabel = root.querySelector('#fa-turn-label');
     ui.streakLabel = root.querySelector('#fa-streak-label');
@@ -1531,8 +1554,14 @@
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
     root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
+    ui.overlayConfirmBtn = root.querySelector('#fa-overlay-confirm-btn');
     root.querySelector('#fa-rematch-btn').addEventListener('click', () => { closeOverlay(); prepareMatch(); });
     root.querySelector('#fa-overlay-lobby-btn').addEventListener('click', backToLobby);
+    if (ui.overlayConfirmBtn) ui.overlayConfirmBtn.addEventListener('click', async () => {
+      closeOverlay();
+      if (isOnlineMode()) await leaveOnlineRoom();
+      backToLobby();
+    });
     root.querySelector('#fa-review-btn').addEventListener('click', startReview);
     root.querySelector('#fa-reset-score-btn').addEventListener('click', resetCareer);
     root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
@@ -2293,11 +2322,39 @@
 
   function closeOverlay() {
     ui.overlay.classList.add('hidden');
+    ui.overlay.classList.remove('result-pop');
+    if (ui.overlayStars) {
+      ui.overlayStars.textContent = '';
+      ui.overlayStars.classList.add('hidden');
+      ui.overlayStars.classList.remove('positive', 'negative');
+    }
+    if (ui.overlayConfirmBtn) ui.overlayConfirmBtn.classList.add('hidden');
+    const rematchBtn = document.getElementById('fa-rematch-btn');
+    const reviewBtn = document.getElementById('fa-review-btn');
+    const lobbyBtn = document.getElementById('fa-overlay-lobby-btn');
+    if (rematchBtn) rematchBtn.classList.remove('hidden');
+    if (reviewBtn) reviewBtn.classList.remove('hidden');
+    if (lobbyBtn) lobbyBtn.classList.remove('hidden');
   }
 
-  function showOverlay(title, text) {
+  function showOverlay(title, text, options = {}) {
+    const { starsText = '', starsTone = '', confirmOnly = false } = options || {};
     ui.overlayTitle.textContent = title;
     ui.overlayText.textContent = text;
+    ui.overlay.classList.toggle('result-pop', !!confirmOnly);
+    if (ui.overlayStars) {
+      ui.overlayStars.textContent = starsText || '';
+      ui.overlayStars.classList.toggle('hidden', !starsText);
+      ui.overlayStars.classList.toggle('positive', starsTone === 'positive');
+      ui.overlayStars.classList.toggle('negative', starsTone === 'negative');
+    }
+    const rematchBtn = document.getElementById('fa-rematch-btn');
+    const reviewBtn = document.getElementById('fa-review-btn');
+    const lobbyBtn = document.getElementById('fa-overlay-lobby-btn');
+    if (ui.overlayConfirmBtn) ui.overlayConfirmBtn.classList.toggle('hidden', !confirmOnly);
+    if (rematchBtn) rematchBtn.classList.toggle('hidden', !!confirmOnly);
+    if (reviewBtn) reviewBtn.classList.toggle('hidden', !!confirmOnly);
+    if (lobbyBtn) lobbyBtn.classList.toggle('hidden', !!confirmOnly);
     ui.overlay.classList.remove('hidden');
   }
 
@@ -3089,6 +3146,11 @@
     const showEntryButtons = inFriendMode && !hasRoom && !joinListOpen && !createComposerOpen;
     if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !createComposerOpen);
     if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !createComposerOpen);
+    if (ui.roomStakePills) ui.roomStakePills.forEach(btn => btn.classList.toggle('hidden', !createComposerOpen));
+    if (ui.roomStakePills && ui.roomStakePills.length) {
+      const pillsWrap = ui.roomStakePills[0].parentElement;
+      if (pillsWrap) pillsWrap.classList.toggle('hidden', !createComposerOpen);
+    }
     if (ui.createRoomBtn) ui.createRoomBtn.classList.toggle('hidden', !createComposerOpen);
     if (ui.joinRoomBtn) ui.joinRoomBtn.classList.toggle('hidden', !showEntryButtons);
     if (ui.modeCreateRoom) ui.modeCreateRoom.classList.toggle('hidden', !(inFriendMode && !hasRoom));
@@ -3487,7 +3549,7 @@
       title = 'Victory!';
       text = rankedAi
         ? `Elegant finish. ${getCurrentRankFromState()} · Streak ${state.streak}`
-        : (starResult ? `Friendly match win secured. +★ ${formatNumber(starResult.delta)} · Balance ★ ${formatNumber(starResult.balance)}` : `Friendly match win secured.`);
+        : (starResult ? `You won the match. Stars have been added to your wallet.` : `You won the match.`);
       triggerWinBurst('win');
       triggerHaptic('win');
       fanfare(true);
@@ -3500,12 +3562,12 @@
       title = 'Defeat!';
       text = rankedAi
         ? `The AI held the line. ${getCurrentRankFromState()} · Challenge ${getAiTitle()}`
-        : (starResult ? `Friendly match finished. -★ ${formatNumber(Math.abs(starResult.delta))} · Balance ★ ${formatNumber(starResult.balance)}` : `Friendly match finished. Try again.`);
+        : (starResult ? `You lost the match. Stars have been deducted from your wallet.` : `You lost the match.`);
       triggerWinBurst('loss');
       triggerHaptic('loss');
       fanfare(false);
     } else if (!rankedAi && isOnlineMode()) {
-      text = `Draw. No stars changed · Balance ★ ${formatNumber(getCurrentStars())}`;
+      text = `Draw match. No stars changed.`;
     }
     const weeklySeason = ensureWeeklySeason();
     if (rankedAi && state.profile) {
@@ -3527,6 +3589,21 @@
     await renderLeaderboard();
     renderBoard(undefined, undefined, line);
     exitMobileFullscreen();
+    if (isOnlineMode()) {
+      let starsText = '';
+      let starsTone = '';
+      if (starResult && starResult.delta > 0) {
+        starsText = `+★ ${formatNumber(starResult.delta)}`;
+        starsTone = 'positive';
+      } else if (starResult && starResult.delta < 0) {
+        starsText = `-★ ${formatNumber(Math.abs(starResult.delta))}`;
+        starsTone = 'negative';
+      } else if (!rankedAi) {
+        starsText = '★ 0';
+      }
+      showOverlay(title, text, { starsText, starsTone, confirmOnly: true });
+      return;
+    }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         openStartScreen();
