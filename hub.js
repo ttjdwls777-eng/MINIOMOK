@@ -2930,6 +2930,8 @@
 
   async function pushOnlineMove() {
     if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) return;
+    const finishedAt = state.gameOver ? (state.online.lastFinishedAt || Date.now()) : null;
+    if (state.gameOver) state.online.lastFinishedAt = finishedAt;
     await firebase.database().ref(getRoomPath(state.online.roomId || state.online.roomCode)).update({
       status: state.gameOver ? 'finished' : 'playing',
       board: state.board,
@@ -2939,7 +2941,7 @@
       winningLine: state.winningLine || [],
       moveCount: state.moveCount || 0,
       lastMove: state.lastMove || null,
-      finishedAt: state.gameOver ? Date.now() : null,
+      finishedAt,
       updatedAt: Date.now()
     });
   }
@@ -3422,7 +3424,13 @@
     const oppSide = getOpponentSide();
     let starResult = null;
     if (isOnlineMode()) {
-      starResult = applyStarSettlementForResult(winner, state.online.starWager || STAR_WAGER_OPTIONS[0], state.online.lastFinishedAt, state.online.roomId || state.online.roomCode);
+      if (!fromRemote) state.online.lastFinishedAt = Date.now();
+      starResult = applyStarSettlementForResult(
+        winner,
+        state.online.starWager || STAR_WAGER_OPTIONS[0],
+        state.online.lastFinishedAt,
+        state.online.roomId || state.online.roomCode
+      );
     }
     if (winner === mySide) {
       if (rankedAi) {
