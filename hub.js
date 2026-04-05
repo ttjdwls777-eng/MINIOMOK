@@ -1,4 +1,4 @@
-unction ordinalSuffix(n) {
+function ordinalSuffix(n) {
     const v = Math.abs(Number(n)) || 0;
     const mod100 = v % 100;
     if (mod100 >= 11 && mod100 <= 13) return 'th';
@@ -2681,11 +2681,7 @@ unction ordinalSuffix(n) {
 
   function prepareMatch() {
     state.board = createBoard();
-    const starter = isOnlineMode()
-      ? (Number(state.nextStarter || HUMAN) || HUMAN)
-      : (state.nextStarter || HUMAN);
-    state.turn = starter;
-    state.online.mySide = starter;
+    state.turn = state.nextStarter || HUMAN;
     stopTurnTimer();
     state.gameOver = false;
     state.winner = 0;
@@ -2885,7 +2881,6 @@ unction ordinalSuffix(n) {
       onConfirm: async () => {
         if (!window.firebase || !firebase.database) return;
         playRoomEventChime('join');
-        const rematchStarter = Number(state.nextStarter || HUMAN) || HUMAN;
         await firebase.database().ref(getRoomPath(state.online.roomId || state.online.roomCode)).update({
           hostReady: true,
           hostPingAt: Date.now(),
@@ -2894,8 +2889,8 @@ unction ordinalSuffix(n) {
           winner: 0,
           winningLine: [],
           board: createBoard(),
-          turn: rematchStarter,
-          nextStarter: rematchStarter,
+          turn: state.nextStarter || HUMAN,
+          nextStarter: state.nextStarter || HUMAN,
           turnExpiresAt: 0,
           moveCount: 0,
           lastMove: null,
@@ -3012,7 +3007,6 @@ unction ordinalSuffix(n) {
     state.online.hostReady = !!room.hostReady;
     state.online.guestReady = !!room.guestReady;
     state.nextStarter = Number(room.nextStarter || HUMAN) || HUMAN;
-    state.turn = Number(room.turn || state.nextStarter || HUMAN) || HUMAN;
     state.online.turnExpiresAt = Number(room.turnExpiresAt || 0);
     state.online.hostId = room.hostId || '';
     state.online.guestId = room.guestId || '';
@@ -3503,12 +3497,11 @@ unction ordinalSuffix(n) {
 
   async function beginOnlinePlayingState() {
     if (!(state.online.roomId || state.online.roomCode) || state.online.role !== 'host' || !window.firebase || !firebase.database) return;
-    const rematchStarter = Number(state.nextStarter || HUMAN) || HUMAN;
     await firebase.database().ref(getRoomPath(state.online.roomId || state.online.roomCode)).update({
       status: 'playing',
       board: createBoard(),
-      turn: rematchStarter,
-      nextStarter: rematchStarter,
+      turn: state.nextStarter || HUMAN,
+      nextStarter: state.nextStarter || HUMAN,
       turnExpiresAt: Date.now() + TURN_LIMIT_MS,
       winner: 0,
       winningLine: [],
@@ -3526,6 +3519,7 @@ unction ordinalSuffix(n) {
       status: state.gameOver ? 'finished' : 'playing',
       board: state.board,
       turn: state.turn,
+      nextStarter: state.nextStarter || HUMAN,
       turnExpiresAt: state.gameOver ? 0 : Date.now() + TURN_LIMIT_MS,
       winner: state.winner || 0,
       winningLine: state.winningLine || [],
@@ -4164,8 +4158,6 @@ unction ordinalSuffix(n) {
           room.id = room.id || state.online.roomId || state.online.roomCode;
           const kicked = await maybeKickInsufficientPlayer(room, winner);
           if (!kicked) {
-            const roomLoserStarter = winner === HUMAN ? AI : winner === AI ? HUMAN : HUMAN;
-            state.nextStarter = roomLoserStarter;
             await ref.update({
               status: 'ready',
               hostReady: false,
@@ -4173,8 +4165,8 @@ unction ordinalSuffix(n) {
               winner: winner || 0,
               winningLine: [],
               board: createBoard(),
-              turn: roomLoserStarter,
-              nextStarter: roomLoserStarter,
+              turn: state.nextStarter || HUMAN,
+              nextStarter: state.nextStarter || HUMAN,
               turnExpiresAt: 0,
               moveCount: 0,
               lastMove: null,
