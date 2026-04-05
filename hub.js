@@ -1,4 +1,4 @@
-  function ordinalSuffix(n) {
+function ordinalSuffix(n) {
     const v = Math.abs(Number(n)) || 0;
     const mod100 = v % 100;
     if (mod100 >= 11 && mod100 <= 13) return 'th';
@@ -157,6 +157,7 @@
       role: '',
       mySide: HUMAN,
       opponentName: 'Friend',
+      opponentRank: '1 Grade',
       status: 'idle',
       unsubscribe: null,
       lastCountdownAt: 0,
@@ -181,7 +182,8 @@
       profileHandle: null,
       challengeHandle: null,
       lastLoadedAt: 0
-    }
+    },
+    nextStarter: HUMAN
   };
 
   const ui = {};
@@ -975,9 +977,18 @@
       }
       
       .fa-friends-panel { margin-top:12px; border:1px solid rgba(255,255,255,.10); background: rgba(22,10,2,.22); border-radius:18px; padding:12px; overflow:hidden; }
-      .fa-friend-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(130px,170px) auto; gap:10px; align-items:center; padding:14px; border-radius:20px; min-width:280px; flex:1 1 310px; background: linear-gradient(180deg, rgba(255,247,231,.11), rgba(255,247,231,.05)), linear-gradient(135deg, rgba(118,72,31,.42), rgba(72,41,20,.34) 55%, rgba(48,28,12,.42)); border:1px solid rgba(255,235,202,.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 18px 34px rgba(28,13,3,.18); }
+      #fa-friends-list{
+        display:grid;
+        grid-template-columns:minmax(0,1fr);
+        width:100%;
+        max-width:100%;
+        overflow-x:hidden;
+        justify-items:stretch;
+      }
+      .fa-friend-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(110px,150px) auto; gap:10px; align-items:center; padding:14px; border-radius:20px; min-width:0; width:100%; max-width:100%; flex:none; background: linear-gradient(180deg, rgba(255,247,231,.11), rgba(255,247,231,.05)), linear-gradient(135deg, rgba(118,72,31,.42), rgba(72,41,20,.34) 55%, rgba(48,28,12,.42)); border:1px solid rgba(255,235,202,.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 18px 34px rgba(28,13,3,.18); }
       .fa-friend-row-meta { min-width:0; }
       .fa-friend-name { font-weight:900; color:#fff4df; font-size:15px; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .fa-friend-rank { color:#f1d598; font-size:12px; font-weight:900; margin-left:4px; }
       .fa-friend-sub { color: var(--muted); font-size:12px; margin-top:3px; }
       .fa-friend-stake { width:100%; min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
 
@@ -1114,23 +1125,27 @@
         touch-action: manipulation;
       }
       .fa-board-playerbar{
-        position:absolute; z-index:4; min-width:220px; max-width:min(42vw,320px);
-        padding:12px 14px; border-radius:18px;
-        background:linear-gradient(180deg, rgba(64,37,17,.84), rgba(34,20,10,.82));
-        border:1px solid rgba(255,227,170,.16);
-        box-shadow:0 14px 34px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.06);
+        position:absolute; z-index:4;
+        display:flex; flex-direction:column; gap:3px;
+        width:auto; min-width:0; max-width:min(26vw, 190px);
+        padding:8px 10px; border-radius:14px;
+        background:
+          linear-gradient(180deg, rgba(74,44,21,.82), rgba(34,20,10,.78)),
+          radial-gradient(circle at top, rgba(255,224,163,.10), transparent 55%);
+        border:1px solid rgba(255,227,170,.14);
+        box-shadow:0 10px 22px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.07);
         backdrop-filter: blur(10px);
         pointer-events:none;
       }
-      .fa-board-playerbar.enemy{ left:18px; top:18px; }
-      .fa-board-playerbar.self{ right:18px; bottom:18px; text-align:right; }
+      .fa-board-playerbar.enemy{ left:14px; top:14px; align-items:flex-start; }
+      .fa-board-playerbar.self{ right:14px; bottom:14px; text-align:right; align-items:flex-end; }
       .fa-board-playerbar.hidden{ display:none !important; }
       .fa-board-playerbar-name{
-        font-size:14px; font-weight:900; color:#fff3dd; letter-spacing:.02em;
+        font-size:11px; line-height:1.15; font-weight:900; color:#fff3dd; letter-spacing:.01em;
         white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
       }
       .fa-board-playerbar-stars{
-        margin-top:4px; font-size:13px; font-weight:800; color:#ffd98a;
+        font-size:10px; line-height:1.1; font-weight:800; color:#ffd98a;
       }
       #fa-floating-surrender{
         position:absolute; left:0; top:0;
@@ -1449,15 +1464,25 @@
         left:auto; top:auto;
         min-width:132px;
       }
+      body.fa-mobile-fullscreen .fa-board-playerbar{
+        padding:10px 12px;
+        border-radius:16px;
+        max-width:min(42vw, 220px);
+        box-shadow:0 14px 28px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.08);
+      }
+      body.fa-mobile-fullscreen .fa-board-playerbar-name{
+        font-size:13px;
+      }
+      body.fa-mobile-fullscreen .fa-board-playerbar-stars{
+        font-size:12px;
+      }
       body.fa-mobile-fullscreen .fa-board-playerbar.enemy{
-        top:70px;
-        left:12px;
-        max-width:calc(100vw - 170px);
+        top:86px;
+        left:24px;
       }
       body.fa-mobile-fullscreen .fa-board-playerbar.self{
-        right:12px;
-        bottom:max(12px, env(safe-area-inset-bottom));
-        max-width:calc(100vw - 24px);
+        right:24px;
+        bottom:max(32px, env(safe-area-inset-bottom));
       }
       body.fa-mobile-fullscreen .fa-main {
         display: block;
@@ -1563,6 +1588,12 @@
         }
         .fa-open-rooms-list.single-room .fa-room-item { min-width: 0 !important; width: 100% !important; max-width: 100% !important; flex: none !important; }
         .fa-board-wrap { min-height: 72vh; }
+        .fa-board-playerbar{
+          max-width:min(38vw, 180px);
+          padding:7px 9px;
+        }
+        .fa-board-playerbar-name{ font-size:10px; }
+        .fa-board-playerbar-stars{ font-size:10px; }
       }
     `;
     document.head.appendChild(style);
@@ -1744,6 +1775,28 @@
     ui.confirmModal.addEventListener('click', e => {
       if (e.target === ui.confirmModal) closeConfirm();
     });
+
+    root.addEventListener('click', e => {
+      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
+      if (!btn) return;
+      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
+      try {
+        initAudio();
+        playUiTap();
+      } catch (err) {}
+    }, true);
+
+    root.addEventListener('keydown', e => {
+      if (!(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
+      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
+      if (!btn) return;
+      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
+      try {
+        initAudio();
+        playUiTap();
+      } catch (err) {}
+    }, true);
+
     window.addEventListener('keydown', onGlobalKey);
     window.addEventListener('resize', () => {
       updateMobileMode();
@@ -2052,9 +2105,10 @@
     ui.friendsList.innerHTML = list.map(friend => {
       const online = isUserOnline(friend);
       const stake = normalizeStarWager(state.online.starWager || STAR_BALANCE_DEFAULT, STAR_WAGER_OPTIONS[0]);
+      const rank = escapeHtml(friend.rank || '1 Grade');
       return `<div class="fa-friend-row">
         <div class="fa-friend-row-meta">
-          <div class="fa-friend-name">${escapeHtml(friend.nickname || 'Friend')}</div>
+          <div class="fa-friend-name">${escapeHtml(friend.nickname || 'Friend')} <span class="fa-friend-rank">[${rank}]</span></div>
           <div class="fa-friend-sub">${online ? 'Online now' : 'Offline'} · ★ ${formatNumber(friend.stars || 0)}</div>
         </div>
         <input class="fa-friend-stake" data-friend-stake="${escapeHtml(friend.id || '')}" type="number" min="1" step="1" value="${stake}" placeholder="Stake" />
@@ -2078,25 +2132,37 @@
     const wager = normalizeStarWager(stake, STAR_WAGER_OPTIONS[0]);
     if (!canAffordStars(wager)) {
       if (ui.roomStatus) ui.roomStatus.textContent = `Not enough stars. Need ★ ${formatNumber(wager)}.`;
+      openNoticePopup('Not Enough Stars', `You need ★ ${formatNumber(wager)} to start this challenge.`, 'Confirm');
       return;
     }
-    try {
-      const friend = (state.friends.list || []).find(v => v.id === friendId);
-      const ref = firebase.database().ref('omokFriendChallenges/' + friendId).push();
-      await ref.set({
-        id: ref.key,
-        challengerId: state.profile.id,
-        challengerNickname: state.profile.nickname,
-        targetId: friendId,
-        targetNickname: friend?.nickname || 'Friend',
-        stake: wager,
-        status: 'pending',
-        createdAt: Date.now()
-      });
-      if (ui.roomStatus) ui.roomStatus.textContent = `${friend?.nickname || 'Friend'} challenge sent for ★ ${formatNumber(wager)}.`;
-    } catch (e) {
-      console.log('send challenge ignored:', e);
-    }
+    const friend = (state.friends.list || []).find(v => v.id === friendId);
+    initAudio();
+    try { playRoomEventChime('join'); } catch (e) {}
+    openConfirm({
+      title: 'Send Challenge?',
+      text: `${friend?.nickname || 'Friend'} [${friend?.rank || '1 Grade'}] · ★ ${formatNumber(friend?.stars || 0)}\n\nDo you want to send a ★ ${formatNumber(wager)} challenge?`,
+      confirmLabel: 'Confirm',
+      onConfirm: async () => {
+        try {
+          const ref = firebase.database().ref('omokFriendChallenges/' + friendId).push();
+          await ref.set({
+            id: ref.key,
+            challengerId: state.profile.id,
+            challengerNickname: state.profile.nickname,
+            challengerRank: getCurrentRankFromState(),
+            targetId: friendId,
+            targetNickname: friend?.nickname || 'Friend',
+            targetRank: friend?.rank || '1 Grade',
+            stake: wager,
+            status: 'pending',
+            createdAt: Date.now()
+          });
+          if (ui.roomStatus) ui.roomStatus.textContent = `${friend?.nickname || 'Friend'} challenge sent for ★ ${formatNumber(wager)}.`;
+        } catch (e) {
+          console.log('send challenge ignored:', e);
+        }
+      }
+    });
   }
 
   async function subscribeFriendChallenges() {
@@ -2124,7 +2190,7 @@
     if (!incoming.length) return;
     const top = incoming.map(ch => `<div class="fa-friend-row">
       <div class="fa-friend-row-meta">
-        <div class="fa-friend-name">${escapeHtml(ch.challengerNickname || 'Friend')} challenged you</div>
+        <div class="fa-friend-name">${escapeHtml(ch.challengerNickname || 'Friend')} <span class="fa-friend-rank">[${escapeHtml(ch.challengerRank || '1 Grade')}]</span> challenged you</div>
         <div class="fa-friend-sub">Stake ★ ${formatNumber(ch.stake || 0)}</div>
       </div>
       <div class="fa-friend-sub">Incoming duel</div>
@@ -2486,6 +2552,7 @@
       await startOnlineRoomMatch();
       return;
     }
+    state.nextStarter = HUMAN;
     state.started = true;
     state.phase = 'countdown';
     state.paused = false;
@@ -2614,7 +2681,7 @@
 
   function prepareMatch() {
     state.board = createBoard();
-    state.turn = getMySide();
+    state.turn = state.nextStarter || HUMAN;
     stopTurnTimer();
     state.gameOver = false;
     state.winner = 0;
@@ -2822,7 +2889,8 @@
           winner: 0,
           winningLine: [],
           board: createBoard(),
-          turn: HUMAN,
+          turn: state.nextStarter || HUMAN,
+          nextStarter: state.nextStarter || HUMAN,
           turnExpiresAt: 0,
           moveCount: 0,
           lastMove: null,
@@ -2840,7 +2908,7 @@
     try {
       if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
         stopOnlinePresence();
-        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
+        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
         if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
         syncUI();
         return;
@@ -2899,7 +2967,7 @@
       console.log('leave room error ignored:', e);
     }
     stopOnlinePresence();
-        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
+        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     setRoomListLocked(false);
     syncUI();
@@ -2938,6 +3006,7 @@
     state.online.status = room.status || (room.guestId ? 'ready' : 'waiting');
     state.online.hostReady = !!room.hostReady;
     state.online.guestReady = !!room.guestReady;
+    state.nextStarter = Number(room.nextStarter || HUMAN) || HUMAN;
     state.online.turnExpiresAt = Number(room.turnExpiresAt || 0);
     state.online.hostId = room.hostId || '';
     state.online.guestId = room.guestId || '';
@@ -3181,6 +3250,7 @@
     const starWager = normalizeStarWager(options?.starWager ?? getSelectedStarWager(), STAR_WAGER_OPTIONS[0]);
     if (!canAffordStars(starWager)) {
       if (ui.roomStatus) ui.roomStatus.textContent = `Not enough stars. You need ★ ${formatNumber(starWager)}.`;
+      openNoticePopup('Not Enough Stars', `You need ★ ${formatNumber(starWager)} to create this room.`, 'Confirm');
       syncUI();
       return;
     }
@@ -3196,6 +3266,7 @@
       title: roomTitle,
       hostId: state.profile.id,
       hostNickname: state.profile.nickname,
+      hostRank: getCurrentRankFromState(),
       guestId: null,
       guestNickname: null,
       status: 'waiting',
@@ -3203,6 +3274,7 @@
       guestReady: false,
       board: createBoard(),
       turn: HUMAN,
+      nextStarter: HUMAN,
       turnExpiresAt: 0,
       winner: 0,
       winningLine: [],
@@ -3224,6 +3296,7 @@
     state.online.role = 'host';
     state.online.mySide = HUMAN;
     state.online.opponentName = 'Waiting...';
+    state.online.opponentRank = '1 Grade';
     state.online.status = 'waiting';
     state.online.hostId = state.profile.id;
     state.online.guestId = '';
@@ -3298,10 +3371,12 @@
     const roomWager = normalizeStarWager(room.starWager, STAR_WAGER_OPTIONS[0]);
     if (!canAffordStars(roomWager)) {
       ui.roomStatus.textContent = `Not enough stars for this room. Need ★ ${formatNumber(roomWager)}.`;
+      openNoticePopup('Not Enough Stars', `You need ★ ${formatNumber(roomWager)} to join this room.`, 'Confirm');
       return;
     }
     room.guestId = room.guestId || state.profile.id;
     room.guestNickname = room.guestNickname || state.profile.nickname;
+    room.guestRank = room.guestRank || getCurrentRankFromState();
     room.hostReady = !!room.hostReady;
     room.guestReady = !!room.guestReady;
     room.status = room.hostId && room.guestId ? 'ready' : 'waiting';
@@ -3316,6 +3391,7 @@
     state.online.role = room.hostId === state.profile.id ? 'host' : 'guest';
     state.online.mySide = state.online.role === 'host' ? HUMAN : AI;
     state.online.opponentName = state.online.role === 'host' ? (room.guestNickname || 'Waiting...') : (room.hostNickname || 'Host');
+    state.online.opponentRank = state.online.role === 'host' ? (room.guestRank || '1 Grade') : (room.hostRank || '1 Grade');
     state.online.status = room.status;
     state.online.hostId = room.hostId || '';
     state.online.guestId = room.guestId || '';
@@ -3357,6 +3433,7 @@
     const roomWager = normalizeStarWager(room.starWager, STAR_WAGER_OPTIONS[0]);
     if (!canAffordStars(roomWager)) {
       ui.roomStatus.textContent = `Not enough stars for this room. Need ★ ${formatNumber(roomWager)}.`;
+      openNoticePopup('Not Enough Stars', `You need ★ ${formatNumber(roomWager)} to continue this match.`, 'Confirm');
       openStartScreen();
       syncUI();
       await leaveOnlineRoom();
@@ -3423,7 +3500,8 @@
     await firebase.database().ref(getRoomPath(state.online.roomId || state.online.roomCode)).update({
       status: 'playing',
       board: createBoard(),
-      turn: HUMAN,
+      turn: state.nextStarter || HUMAN,
+      nextStarter: state.nextStarter || HUMAN,
       turnExpiresAt: Date.now() + TURN_LIMIT_MS,
       winner: 0,
       winningLine: [],
@@ -3515,7 +3593,35 @@
     if (ui.confirmProgress) ui.confirmProgress.classList.add('hidden');
     if (ui.confirmProgressFill) ui.confirmProgressFill.style.width = '100%';
     const ok = ui.root.querySelector('#fa-confirm-ok');
+    const cancel = ui.root.querySelector('#fa-confirm-cancel');
     if (ok) ok.textContent = 'Confirm';
+    if (cancel) {
+      cancel.textContent = 'Cancel';
+      cancel.classList.remove('hidden');
+    }
+  }
+
+  function openNoticePopup(title, text, confirmLabel = 'Confirm') {
+    initAudio();
+    try { playRoomEventChime('join'); } catch (e) {}
+    ui.confirmTitle.textContent = title;
+    ui.confirmText.textContent = text;
+    ui.confirmModal.classList.remove('hidden');
+    const ok = ui.root.querySelector('#fa-confirm-ok');
+    const cancel = ui.root.querySelector('#fa-confirm-cancel');
+    if (ok) {
+      ok.textContent = confirmLabel;
+      ok.onclick = () => closeConfirm();
+    }
+    if (cancel) {
+      cancel.classList.add('hidden');
+      cancel.onclick = () => closeConfirm();
+    }
+    if (state.confirmTimer) clearInterval(state.confirmTimer);
+    state.confirmTimer = null;
+    state.confirmExpireAt = 0;
+    if (ui.confirmProgress) ui.confirmProgress.classList.add('hidden');
+    if (ui.confirmProgressFill) ui.confirmProgressFill.style.width = '100%';
   }
 
   function resetCareer() {
@@ -3608,9 +3714,9 @@
     const walletStars = getCurrentStars();
     const activeStake = isOnlineMode() ? (state.online.starWager || STAR_WAGER_OPTIONS[0]) : getSelectedStarWager();
     const opponentStars = isOnlineMode() ? Number(state.online.opponentStars || 0) : 0;
-    if (ui.enemyName) ui.enemyName.textContent = isOnlineMode() ? (state.online.opponentName || 'Opponent') : 'FA AI';
+    if (ui.enemyName) ui.enemyName.textContent = isOnlineMode() ? `${state.online.opponentName || 'Opponent'} [${state.online.opponentRank || '1 Grade'}]` : 'FA AI';
     if (ui.enemyStars) ui.enemyStars.textContent = isOnlineMode() ? `★ ${formatNumber(opponentStars)}` : '';
-    if (ui.selfName) ui.selfName.textContent = state.profile ? state.profile.nickname : 'Guest';
+    if (ui.selfName) ui.selfName.textContent = `${state.profile ? state.profile.nickname : 'Guest'} [${getCurrentRankFromState()}]`;
     if (ui.selfStars) ui.selfStars.textContent = `★ ${formatNumber(walletStars)}`;
     if (ui.enemyInfo) ui.enemyInfo.classList.toggle('hidden', !isOnlineMode());
     if (ui.selfInfo) ui.selfInfo.classList.toggle('hidden', !isOnlineMode());
@@ -3977,6 +4083,7 @@
       );
     }
     if (winner === mySide) {
+      state.nextStarter = oppSide;
       if (rankedAi) {
         state.totalWins += 1;
         applyRankedResult(true);
@@ -3991,6 +4098,7 @@
       triggerHaptic('win');
       fanfare(true);
     } else if (winner === oppSide) {
+      state.nextStarter = mySide;
       if (rankedAi) {
         state.totalLosses += 1;
         applyRankedResult(false);
@@ -4004,7 +4112,10 @@
       triggerHaptic('loss');
       fanfare(false);
     } else if (!rankedAi && isOnlineMode()) {
+      state.nextStarter = HUMAN;
       text = `Draw match. No stars changed.`;
+    } else {
+      state.nextStarter = HUMAN;
     }
     const weeklySeason = ensureWeeklySeason();
     if (rankedAi && state.profile) {
@@ -4053,7 +4164,8 @@
               winner: winner || 0,
               winningLine: [],
               board: createBoard(),
-              turn: HUMAN,
+              turn: state.nextStarter || HUMAN,
+              nextStarter: state.nextStarter || HUMAN,
               turnExpiresAt: 0,
               moveCount: 0,
               lastMove: null,
