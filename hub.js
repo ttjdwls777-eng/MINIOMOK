@@ -295,7 +295,12 @@ function ordinalSuffix(n) {
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
     if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
-    if (ui.main) ui.main.classList.toggle('hidden', screen === 'home' || screen === 'ranking');
+    if (ui.aiScene) ui.aiScene.classList.toggle('hidden', visualScreen !== 'ai');
+    if (ui.onlineScene) ui.onlineScene.classList.toggle('hidden', visualScreen !== 'online');
+    if (ui.createRoomScene) ui.createRoomScene.classList.toggle('hidden', visualScreen !== 'create-room');
+    if (ui.friendMatchScene) ui.friendMatchScene.classList.toggle('hidden', visualScreen !== 'friend-match');
+    if (ui.friendsScene) ui.friendsScene.classList.toggle('hidden', visualScreen !== 'friends');
+    if (ui.main) ui.main.classList.toggle('hidden', ['home','ranking','ai','online','create-room','friend-match','friends'].includes(visualScreen));
 
     if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
     if (ui.navAi) ui.navAi.classList.toggle('active', visualScreen === 'ai');
@@ -339,11 +344,18 @@ function ordinalSuffix(n) {
     const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
     const prefersSmooth = window.innerWidth <= 740;
     const behavior = prefersSmooth ? 'smooth' : 'auto';
-    const target = visualScreen === 'home'
-      ? ui.homeScene
-      : visualScreen === 'ranking'
-        ? ui.rankingScene
-        : ui.main;
+    const sceneMap = {
+      home: ui.homeScene,
+      ranking: ui.rankingScene,
+      ai: ui.aiScene,
+      online: ui.onlineScene,
+      'create-room': ui.createRoomScene,
+      'friend-match': ui.friendMatchScene,
+      friends: ui.friendsScene,
+      room: ui.main,
+      game: ui.main
+    };
+    const target = sceneMap[visualScreen] || ui.main;
     requestAnimationFrame(() => {
       try {
         window.scrollTo({ top: 0, behavior });
@@ -357,6 +369,37 @@ function ordinalSuffix(n) {
         } catch {}
       });
     });
+  }
+
+  function syncDedicatedSceneInputs() {
+    if (ui.sceneRoomTitleInput && ui.roomTitleInput && ui.sceneRoomTitleInput !== document.activeElement) {
+      ui.sceneRoomTitleInput.value = ui.roomTitleInput.value || '';
+    }
+    if (ui.sceneRoomCodeInput && ui.roomCodeInput && ui.sceneRoomCodeInput !== document.activeElement) {
+      ui.sceneRoomCodeInput.value = ui.roomCodeInput.value || '';
+    }
+    if (ui.sceneRoomStakePills && ui.sceneRoomStakePills.length) {
+      ui.sceneRoomStakePills.forEach(btn => {
+        const stake = Number(btn.dataset.sceneStake || 0);
+        btn.classList.toggle('active', stake === normalizeStarWager(state.online.starWager || STAR_WAGER_OPTIONS[0], STAR_WAGER_OPTIONS[0]));
+      });
+    }
+  }
+
+  function syncDedicatedPanels() {
+    syncDedicatedSceneInputs();
+    if (ui.aiSceneName) ui.aiSceneName.textContent = state.profile ? state.profile.nickname : 'Guest';
+    if (ui.aiSceneRank) ui.aiSceneRank.textContent = getCurrentRankFromState();
+    if (ui.aiSceneLevel) ui.aiSceneLevel.textContent = getAiTitle();
+    if (ui.aiSceneStars) ui.aiSceneStars.textContent = `★ ${formatNumber(getCurrentStars())}`;
+    if (ui.aiSceneStats) {
+      ui.aiSceneStats.innerHTML = `
+        <div class="fa-scene-stat"><span>Wins</span><strong>${state.totalWins}</strong></div>
+        <div class="fa-scene-stat"><span>Losses</span><strong>${state.totalLosses}</strong></div>
+        <div class="fa-scene-stat"><span>Best Streak</span><strong>${state.bestStreak}</strong></div>
+        <div class="fa-scene-stat"><span>Games</span><strong>${state.totalGames}</strong></div>
+      `;
+    }
   }
 
   function updateHomeScene() {
@@ -869,6 +912,93 @@ function ordinalSuffix(n) {
               <div class="fa-modal-body" id="fa-ranking-screen-list" style="padding:16px 0 0;max-height:none;"></div>
             </div>
           </div>
+
+          <div class="fa-dedicated-scene hidden" id="fa-ai-scene">
+            <div class="fa-scene-grid two">
+              <div class="fa-panel fa-dedicated-card">
+                <div class="fa-modal-title">AI Match</div>
+                <div class="fa-modal-sub">랭킹보드처럼 중앙 보드 없이 AI 전용 화면만 표시됩니다.</div>
+                <div class="fa-dedicated-stack">
+                  <div class="fa-info-box">
+                    <div class="fa-info-line"><span>Nickname</span><strong id="fa-ai-scene-name">Guest</strong></div>
+                    <div class="fa-info-line"><span>Rank</span><strong id="fa-ai-scene-rank">1 Grade</strong></div>
+                    <div class="fa-info-line"><span>AI Level</span><strong id="fa-ai-scene-level">Calm</strong></div>
+                    <div class="fa-info-line"><span>Stars</span><strong id="fa-ai-scene-stars">★ 10,000</strong></div>
+                  </div>
+                  <div class="fa-dedicated-actions">
+                    <button class="fa-btn primary big" id="fa-ai-scene-start">Game Start</button>
+                    <button class="fa-btn ghost" id="fa-ai-scene-home">Back Home</button>
+                  </div>
+                </div>
+              </div>
+              <div class="fa-panel fa-dedicated-card">
+                <div class="fa-panel-title">Career Snapshot</div>
+                <div class="fa-home-stats" id="fa-ai-scene-stats"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fa-dedicated-scene hidden" id="fa-online-scene">
+            <div class="fa-panel fa-dedicated-card">
+              <div class="fa-modal-title">Online Lobby</div>
+              <div class="fa-modal-sub">원하는 메뉴를 누르면 랭킹보드처럼 별도 화면으로 바로 열립니다.</div>
+              <div class="fa-dedicated-actions left">
+                <button class="fa-btn" id="fa-online-scene-create">Create Room</button>
+                <button class="fa-btn" id="fa-online-scene-join">Friend Match</button>
+                <button class="fa-btn" id="fa-online-scene-friends">Friends</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="fa-dedicated-scene hidden" id="fa-create-room-scene">
+            <div class="fa-panel fa-dedicated-card">
+              <div class="fa-modal-title">Create Room</div>
+              <div class="fa-modal-sub">중앙 화면 이동 없이 방 만들기 전용 화면만 표시됩니다.</div>
+              <div class="fa-dedicated-form">
+                <input id="fa-scene-room-title-input" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Room title" />
+                <input id="fa-scene-room-code-input" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Enter room code (optional)" />
+                <div class="fa-room-stake-pills" id="fa-scene-room-stake-pills" aria-label="Star stake">
+                  <button type="button" class="fa-stake-pill active" data-scene-stake="100">★ 100</button>
+                  <button type="button" class="fa-stake-pill" data-scene-stake="1000">★ 1,000</button>
+                  <button type="button" class="fa-stake-pill" data-scene-stake="10000">★ 10,000</button>
+                </div>
+                <div class="fa-dedicated-actions left">
+                  <button class="fa-btn primary" id="fa-scene-create-room-btn">Create Room</button>
+                  <button class="fa-btn ghost" id="fa-scene-create-back">Back</button>
+                </div>
+                <div class="fa-mini-note" id="fa-scene-create-note">Enter a room title, optional code, and star stake.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fa-dedicated-scene hidden" id="fa-friend-match-scene">
+            <div class="fa-panel fa-dedicated-card">
+              <div class="fa-modal-title">Friend Match Rooms</div>
+              <div class="fa-modal-sub">방 목록만 따로 보이는 전용 화면입니다.</div>
+              <div class="fa-open-rooms" style="margin-top:16px;">
+                <div class="fa-open-rooms-head">
+                  <div class="fa-open-rooms-title">Open Rooms</div>
+                  <button class="fa-btn ghost tiny" id="fa-scene-refresh-rooms-btn">Refresh</button>
+                </div>
+                <div class="fa-open-rooms-list" id="fa-scene-open-rooms-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fa-dedicated-scene hidden" id="fa-friends-scene">
+            <div class="fa-panel fa-dedicated-card">
+              <div class="fa-modal-title">Friends</div>
+              <div class="fa-modal-sub">친구 목록만 따로 보이는 전용 화면입니다.</div>
+              <div class="fa-friends-panel" style="margin-top:16px; display:block !important;">
+                <div class="fa-open-rooms-head">
+                  <div class="fa-open-rooms-title">Online Friends</div>
+                  <button class="fa-btn ghost tiny" id="fa-scene-refresh-friends-btn">Refresh</button>
+                </div>
+                <div class="fa-open-rooms-list" id="fa-scene-friends-list" style="display:grid;grid-template-columns:minmax(0,1fr);"></div>
+              </div>
+            </div>
+          </div>
+
           <div class="fa-panel wallet top-wallet-panel">
             <div class="fa-panel-title">Star Wallet</div>
             <div class="fa-panel-sub">Owned Stars</div>
@@ -1224,7 +1354,24 @@ function ordinalSuffix(n) {
       }
       .fa-scene-title { font-size: 22px; font-weight: 900; }
       .fa-scene-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
-      .fa-home-scene, .fa-ranking-scene { position: relative; z-index:1; }
+      .fa-home-scene, .fa-ranking-scene, .fa-dedicated-scene { position: relative; z-index:1; }
+      .fa-dedicated-scene {
+        padding: 0;
+      }
+      .fa-scene-grid.two {
+        display:grid; grid-template-columns:minmax(0,1fr) minmax(320px,.8fr); gap:18px;
+      }
+      .fa-dedicated-card {
+        padding:22px;
+      }
+      .fa-dedicated-stack { margin-top:16px; display:grid; gap:16px; }
+      .fa-dedicated-actions { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:8px; }
+      .fa-dedicated-actions.left { justify-content:flex-start; }
+      .fa-dedicated-form { margin-top:16px; display:grid; gap:12px; }
+      .fa-dedicated-form input {
+        min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px;
+      }
+      .fa-dedicated-form input::placeholder { color: rgba(255,248,239,.48); }
       .fa-home-hero {
         display:grid; grid-template-columns: minmax(0,1.2fr) minmax(320px,.8fr); gap:18px;
       }
@@ -1237,9 +1384,14 @@ function ordinalSuffix(n) {
       .fa-scene-stat { padding:16px; border-radius:18px; background: rgba(255,245,232,.05); border:1px solid rgba(255,237,206,.08); }
       .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
       .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
-      body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
+      body.fa-route-home .fa-main, body.fa-route-ranking .fa-main, body.fa-route-ai .fa-main, body.fa-route-online .fa-main, body.fa-route-create-room .fa-main, body.fa-route-friend-match .fa-main, body.fa-route-friends .fa-main { display:none !important; }
       body.fa-route-home #fa-home-scene { display:block !important; }
       body.fa-route-ranking #fa-ranking-scene { display:block !important; }
+      body.fa-route-ai #fa-ai-scene { display:block !important; }
+      body.fa-route-online #fa-online-scene { display:block !important; }
+      body.fa-route-create-room #fa-create-room-scene { display:block !important; }
+      body.fa-route-friend-match #fa-friend-match-scene { display:block !important; }
+      body.fa-route-friends #fa-friends-scene { display:block !important; }
       body.fa-route-ai .fa-right,
       body.fa-route-online .fa-right,
       body.fa-route-create-room .fa-right,
@@ -1318,7 +1470,7 @@ function ordinalSuffix(n) {
       body.fa-route-friends .fa-lobby-result,
       body.fa-route-room .fa-lobby-result { display:none !important; }
       @media (max-width: 900px) {
-        .fa-home-hero { grid-template-columns: 1fr; }
+        .fa-home-hero, .fa-scene-grid.two { grid-template-columns: 1fr; }
       }
       .top-wallet-panel { padding: 16px 18px; }
       .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
@@ -2148,7 +2300,22 @@ function ordinalSuffix(n) {
     ui.main = root.querySelector('.fa-main');
     ui.homeScene = root.querySelector('#fa-home-scene');
     ui.rankingScene = root.querySelector('#fa-ranking-scene');
+    ui.aiScene = root.querySelector('#fa-ai-scene');
+    ui.onlineScene = root.querySelector('#fa-online-scene');
+    ui.createRoomScene = root.querySelector('#fa-create-room-scene');
+    ui.friendMatchScene = root.querySelector('#fa-friend-match-scene');
+    ui.friendsScene = root.querySelector('#fa-friends-scene');
     ui.rankingSceneList = root.querySelector('#fa-ranking-screen-list');
+    ui.aiSceneName = root.querySelector('#fa-ai-scene-name');
+    ui.aiSceneRank = root.querySelector('#fa-ai-scene-rank');
+    ui.aiSceneLevel = root.querySelector('#fa-ai-scene-level');
+    ui.aiSceneStars = root.querySelector('#fa-ai-scene-stars');
+    ui.aiSceneStats = root.querySelector('#fa-ai-scene-stats');
+    ui.sceneRoomTitleInput = root.querySelector('#fa-scene-room-title-input');
+    ui.sceneRoomCodeInput = root.querySelector('#fa-scene-room-code-input');
+    ui.sceneRoomStakePills = Array.from(root.querySelectorAll('[data-scene-stake]'));
+    ui.sceneOpenRoomsList = root.querySelector('#fa-scene-open-rooms-list');
+    ui.sceneFriendsList = root.querySelector('#fa-scene-friends-list');
     ui.navHome = root.querySelector('#fa-nav-home');
     ui.navAi = root.querySelector('#fa-nav-ai');
     ui.navOnline = root.querySelector('#fa-nav-online');
@@ -2208,6 +2375,24 @@ function ordinalSuffix(n) {
       openJoinRoomList();
     });
     if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
+    const aiSceneStart = root.querySelector('#fa-ai-scene-start');
+    const aiSceneHome = root.querySelector('#fa-ai-scene-home');
+    const onlineSceneCreate = root.querySelector('#fa-online-scene-create');
+    const onlineSceneJoin = root.querySelector('#fa-online-scene-join');
+    const onlineSceneFriends = root.querySelector('#fa-online-scene-friends');
+    const sceneCreateRoomBtn = root.querySelector('#fa-scene-create-room-btn');
+    const sceneCreateBack = root.querySelector('#fa-scene-create-back');
+    const sceneRefreshRoomsBtn = root.querySelector('#fa-scene-refresh-rooms-btn');
+    const sceneRefreshFriendsBtn = root.querySelector('#fa-scene-refresh-friends-btn');
+    if (aiSceneStart) aiSceneStart.addEventListener('click', async () => { switchMatchMode('ai'); openStartScreen(); await startGameFromLobby(); });
+    if (aiSceneHome) aiSceneHome.addEventListener('click', () => navigateToScreen('home'));
+    if (onlineSceneCreate) onlineSceneCreate.addEventListener('click', () => { switchMatchMode('friend'); openCreateRoomComposer(); });
+    if (onlineSceneJoin) onlineSceneJoin.addEventListener('click', () => { switchMatchMode('friend'); openJoinRoomList(); });
+    if (onlineSceneFriends) onlineSceneFriends.addEventListener('click', () => { switchMatchMode('friend'); openFriendsPanel(); });
+    if (sceneCreateRoomBtn) sceneCreateRoomBtn.addEventListener('click', () => createOnlineRoom());
+    if (sceneCreateBack) sceneCreateBack.addEventListener('click', () => navigateToScreen('online', { bypassLock: true }));
+    if (sceneRefreshRoomsBtn) sceneRefreshRoomsBtn.addEventListener('click', () => openJoinRoomList());
+    if (sceneRefreshFriendsBtn) sceneRefreshFriendsBtn.addEventListener('click', () => refreshFriendsPanel());
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
     if (ui.leaderTabTotal) ui.leaderTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
     if (ui.leaderTabWeekly) ui.leaderTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
@@ -2271,6 +2456,22 @@ function ordinalSuffix(n) {
     if (ui.roomCodeInput) ui.roomCodeInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') joinOnlineRoom();
     });
+    if (ui.sceneRoomTitleInput && ui.roomTitleInput) ui.sceneRoomTitleInput.addEventListener('input', () => {
+      ui.roomTitleInput.value = ui.sceneRoomTitleInput.value;
+    });
+    if (ui.sceneRoomCodeInput && ui.roomCodeInput) ui.sceneRoomCodeInput.addEventListener('input', () => {
+      ui.sceneRoomCodeInput.value = normalizeRoomCode(ui.sceneRoomCodeInput.value);
+      ui.roomCodeInput.value = ui.sceneRoomCodeInput.value;
+    });
+    if (ui.sceneRoomCodeInput) ui.sceneRoomCodeInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') createOnlineRoom();
+    });
+    if (ui.sceneRoomStakePills && ui.sceneRoomStakePills.length) ui.sceneRoomStakePills.forEach(btn => btn.addEventListener('click', () => {
+      const stake = Number(btn.dataset.sceneStake || STAR_WAGER_OPTIONS[0]);
+      if (!STAR_WAGER_OPTIONS.includes(stake)) return;
+      state.online.starWager = stake;
+      syncUI();
+    }));
     if (ui.roomStakePills && ui.roomStakePills.length) ui.roomStakePills.forEach(btn => btn.addEventListener('click', () => {
       const stake = Number(btn.dataset.stake || STAR_WAGER_OPTIONS[0]);
       if (!STAR_WAGER_OPTIONS.includes(stake)) return;
@@ -2606,13 +2807,14 @@ function ordinalSuffix(n) {
   }
 
   function renderFriendsPanel() {
-    if (!ui.friendsList) return;
+    const targetLists = [ui.friendsList, ui.sceneFriendsList].filter(Boolean);
+    if (!targetLists.length) return;
     const list = Array.isArray(state.friends.list) ? state.friends.list : [];
     if (!list.length) {
-      ui.friendsList.innerHTML = '<div class="fa-room-empty">No users are currently online.</div>';
+      targetLists.forEach(el => el.innerHTML = '<div class="fa-room-empty">No users are currently online.</div>');
       return;
     }
-    ui.friendsList.innerHTML = list.map(friend => {
+    const html = list.map(friend => {
       const online = isUserOnline(friend);
       const stake = normalizeStarWager(state.online.starWager || STAR_BALANCE_DEFAULT, STAR_WAGER_OPTIONS[0]);
       const rank = escapeHtml(friend.rank || '1 Grade');
@@ -2625,12 +2827,13 @@ function ordinalSuffix(n) {
         <button class="fa-btn" data-challenge-friend="${escapeHtml(friend.id || '')}" ${online ? '' : 'disabled'}>${online ? 'Challenge' : 'Offline'}</button>
       </div>`;
     }).join('');
-    Array.from(ui.friendsList.querySelectorAll('[data-challenge-friend]')).forEach(btn => btn.addEventListener('click', () => {
+    targetLists.forEach(el => el.innerHTML = html);
+    targetLists.forEach(el => Array.from(el.querySelectorAll('[data-challenge-friend]')).forEach(btn => btn.addEventListener('click', () => {
       const friendId = btn.getAttribute('data-challenge-friend');
-      const input = ui.friendsList.querySelector(`[data-friend-stake="${CSS.escape(friendId)}"]`);
+      const input = el.querySelector(`[data-friend-stake="${CSS.escape(friendId)}"]`);
       const stake = normalizeStarWager(input?.value || STAR_WAGER_OPTIONS[0], STAR_WAGER_OPTIONS[0]);
       sendFriendChallenge(friendId, stake);
-    }));
+    })));
   }
 
   async function addFriendByNickname() {
@@ -3754,11 +3957,12 @@ function ordinalSuffix(n) {
     ui.openRoomsPanel.classList.remove('hidden');
     setRoomListLocked(false);
     ui.openRoomsList.classList.toggle('single-room', rooms.length === 1);
+    const targetLists = [ui.openRoomsList, ui.sceneOpenRoomsList].filter(Boolean);
     if (!rooms.length) {
-      ui.openRoomsList.innerHTML = '<div class="fa-room-empty">No open rooms right now.</div>';
+      targetLists.forEach(list => list.innerHTML = '<div class="fa-room-empty">No open rooms right now.</div>');
       return;
     }
-    ui.openRoomsList.innerHTML = rooms.map(room => {
+    const roomsHtml = rooms.map(room => {
       const title = escapeHtml(room.title || 'Friendly Match');
       const host = escapeHtml(room.hostNickname || 'Host');
       const accessCode = escapeHtml(room.accessCode || room.code || '');
@@ -3776,20 +3980,26 @@ function ordinalSuffix(n) {
           : `<button class="fa-btn tiny" data-room-id="${roomId}">Join</button>`;
       return `<div class="fa-room-item"><div><div class="fa-room-item-title">${title}</div><div class="fa-room-item-meta">Host ${host}${locked ? ' · Private' : ' · Open'} · Stake ★ ${formatNumber(stake)}</div>${badge}</div>${action}</div>`;
     }).join('');
-    ui.openRoomsList.querySelectorAll('[data-room-id]').forEach(btn => {
+    targetLists.forEach(list => list.innerHTML = roomsHtml);
+    targetLists.forEach(list => list.querySelectorAll('[data-room-id]').forEach(btn => {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         const roomId = btn.getAttribute('data-room-id');
         if (ui.roomStatus) ui.roomStatus.textContent = 'Joining room...';
         await joinOnlineRoom('', roomId);
       });
-    });
-    ui.openRoomsList.querySelectorAll('[data-room-locked]').forEach(btn => {
+    }));
+    targetLists.forEach(list => list.querySelectorAll('[data-room-locked]').forEach(btn => {
       btn.addEventListener('click', () => {
         if (ui.roomStatus) ui.roomStatus.textContent = 'This room is private. Enter its code to join.';
-        if (ui.roomCodeInput) ui.roomCodeInput.focus();
+        if (ui.sceneRoomCodeInput && resolveAppScreen() === 'friend-match') {
+          navigateToScreen('create-room', { bypassLock: true });
+          state.online.panelMode = 'create';
+          syncUI();
+          setTimeout(() => ui.sceneRoomCodeInput.focus(), 0);
+        } else if (ui.roomCodeInput) ui.roomCodeInput.focus();
       });
-    });
+    }));
   }
 
   async function openJoinRoomList() {
@@ -3865,6 +4075,8 @@ function ordinalSuffix(n) {
       syncUI();
       return;
     }
+    if (ui.sceneRoomTitleInput && resolveAppScreen() === 'create-room') ui.roomTitleInput.value = ui.sceneRoomTitleInput.value || ui.roomTitleInput.value || '';
+    if (ui.sceneRoomCodeInput && resolveAppScreen() === 'create-room') ui.roomCodeInput.value = ui.sceneRoomCodeInput.value || ui.roomCodeInput.value || '';
     const accessCode = normalizeRoomCode(ui.roomCodeInput?.value);
     const roomTitle = sanitizeRoomTitle(ui.roomTitleInput?.value) || `${state.profile.nickname}'s Room`;
     const roomRef = firebase.database().ref('omokRooms').push();
@@ -4444,6 +4656,7 @@ function ordinalSuffix(n) {
     updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
+    syncDedicatedPanels();
     syncAppScreen();
   }
 
