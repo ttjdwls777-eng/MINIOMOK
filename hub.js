@@ -19,6 +19,8 @@ function ordinalSuffix(n) {
   const WEEKLY_RESET_META_KEY = 'fa_omok_weekly_reset_meta_v1';
   const WEEKLY_PREV_LEADERBOARD_KEY = 'fa_omok_weekly_prev_board_v1';
   const WEEKLY_PREV_META_KEY = 'fa_omok_weekly_prev_meta_v1';
+  const FIREBASE_WEEKLY_META_PATH = 'leaderboards/omokWeeklyMeta';
+  const FIREBASE_WEEKLY_BOARD_ROOT = 'leaderboards/omokWeekly';
   const FRIENDS_KEY = 'fa_omok_friends_v1';
   const BOARD_SIZE = 15;
   const CELL = 44;
@@ -226,6 +228,8 @@ function ordinalSuffix(n) {
       dismissedChallengeId: localStorage.getItem('fa_omok_dismissed_challenge_id') || ''
     },
     nextStarter: HUMAN,
+    sharedWeeklyLeaderboard: [],
+    sharedPreviousWeeklyLeaderboard: [],
     appScreen: 'home',
     lastNonGameScreen: 'home'
   };
@@ -262,6 +266,7 @@ function ordinalSuffix(n) {
     if (locked && !bypassLock) {
       state.appScreen = 'room';
       syncAppScreen();
+      scrollViewportToActiveScreen('room');
       return false;
     }
     if (target === 'ranking') {
@@ -274,6 +279,7 @@ function ordinalSuffix(n) {
       state.lastNonGameScreen = target;
     }
     syncAppScreen();
+    scrollViewportToActiveScreen(target);
     return true;
   }
 
@@ -326,6 +332,31 @@ function ordinalSuffix(n) {
       ui.sceneSubtitle.textContent = sub;
     }
     updateHomeScene();
+  }
+
+  function scrollViewportToActiveScreen(screenHint = '') {
+    const screen = screenHint || resolveAppScreen();
+    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
+    const prefersSmooth = window.innerWidth <= 740;
+    const behavior = prefersSmooth ? 'smooth' : 'auto';
+    const target = visualScreen === 'home'
+      ? ui.homeScene
+      : visualScreen === 'ranking'
+        ? ui.rankingScene
+        : ui.main;
+    requestAnimationFrame(() => {
+      try {
+        window.scrollTo({ top: 0, behavior });
+      } catch {
+        window.scrollTo(0, 0);
+      }
+      requestAnimationFrame(() => {
+        if (!target || typeof target.scrollIntoView !== 'function') return;
+        try {
+          target.scrollIntoView({ block: 'start', behavior });
+        } catch {}
+      });
+    });
   }
 
   function updateHomeScene() {
@@ -596,6 +627,85 @@ function ordinalSuffix(n) {
       return { meta, board: Array.isArray(board) ? board : [] };
     } catch {
       return { meta: null, board: [] };
+    }
+  }
+
+  async function syncFirebaseWeeklySeasonMeta(season = getWeeklyWindow()) {
+    if (!window.firebase || !firebase.database) return null;
+    try {
+      const ref = firebase.database().ref(FIREBASE_WEEKLY_META_PATH);
+      const snap = await ref.once('value');
+      const meta = snap.val() || {};
+      const current = meta.current || null;
+      if (!current || String(current.key || '') !== String(season.key)) {
+        const nextMeta = {
+          current: { key: season.key, start: season.start.getTime(), end: season.end.getTime(), updatedAt: Date.now() },
+          previous: current && current.key ? { key: current.key, start: current.start || 0, end: current.end || 0, updatedAt: Date.now() } : (meta.previous || null)
+        };
+        await ref.update(nextMeta);
+        return nextMeta;
+      }
+      return meta;
+    } catch (err) {
+      console.log('weekly meta sync ignored:', err);
+      return null;
+    }
+  }
+
+  async function fetchFirebaseWeeklyLeaderboardByKey(seasonKey, limit = 7) {
+    if (!window.firebase || !firebase.database || !seasonKey) return [];
+    try {
+      const snap = await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(seasonKey)).once('value');
+      const raw = snap.val() || {};
+      const list = Object.values(raw)
+        .filter(Boolean)
+        .map(v => ({
+          ...v,
+          totalWins: Number(v.weeklyWins || 0),
+          totalLosses: Number(v.weeklyLosses || 0),
+          totalGames: Number(v.weeklyGames || 0)
+        }));
+      return sanitizeLeaderboardEntries(list.filter(v => Number(v.totalWins || 0) > 0)).slice(0, limit);
+    } catch (err) {
+      console.log('weekly board fetch ignored:', err);
+      return [];
+    }
+  }
+
+  async function fetchFirebaseWeeklyLeaderboards(limit = 7) {
+    const season = getWeeklyWindow();
+    let meta = await syncFirebaseWeeklySeasonMeta(season);
+    if (!meta && window.firebase && firebase.database) {
+      try {
+        const snap = await firebase.database().ref(FIREBASE_WEEKLY_META_PATH).once('value');
+        meta = snap.val() || null;
+      } catch (err) {
+        console.log('weekly meta fetch ignored:', err);
+      }
+    }
+    const currentKey = String(meta?.current?.key || season.key);
+    const previousKey = String(meta?.previous?.key || '');
+    const weekly = await fetchFirebaseWeeklyLeaderboardByKey(currentKey, limit);
+    const previous = previousKey ? await fetchFirebaseWeeklyLeaderboardByKey(previousKey, limit) : [];
+    state.sharedWeeklyLeaderboard = weekly;
+    state.sharedPreviousWeeklyLeaderboard = previous;
+    return { weekly, previous, meta };
+  }
+
+  async function saveWeeklyEntryToFirebase(entry) {
+    if (!window.firebase || !firebase.database || !entry || !entry.id) return false;
+    try {
+      const season = getWeeklyWindow();
+      await syncFirebaseWeeklySeasonMeta(season);
+      await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(season.key) + '/' + entry.id).set({
+        ...entry,
+        weeklyKey: season.key,
+        updatedAt: Date.now()
+      });
+      return true;
+    } catch (err) {
+      console.log('weekly board save ignored:', err);
+      return false;
     }
   }
 
@@ -4349,6 +4459,7 @@ function ordinalSuffix(n) {
 
   async function syncProfileToLeaderboard() {
     if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
+    const season = ensureWeeklySeason();
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -4363,12 +4474,14 @@ function ordinalSuffix(n) {
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: ensureWeeklySeason().key,
+      weeklyKey: season.key,
       stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
     upsertWeeklyLeaderboard(entry);
+    await saveWeeklyEntryToFirebase(entry);
     state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
+    await fetchFirebaseWeeklyLeaderboards(7);
   }
 
   async function openLeaderboard() {
@@ -4431,6 +4544,15 @@ function ordinalSuffix(n) {
       .sort(compareLeaderboard)
       .slice(0, 7);
 
+    let sharedWeeklyMeta = null;
+    try {
+      const sharedWeekly = await fetchFirebaseWeeklyLeaderboards(7);
+      sharedWeeklyMeta = sharedWeekly?.meta || null;
+      if (sharedWeekly?.weekly?.length) weeklyBoard = sharedWeekly.weekly.slice(0, 7);
+    } catch (err) {
+      console.log('shared weekly refresh ignored:', err);
+    }
+
     if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 7);
 
     const rankMark = i => {
@@ -4471,12 +4593,12 @@ function ordinalSuffix(n) {
     ui.leaderPreview.innerHTML = totalBoard.length ? totalBoard.slice(0,30).map((p,i)=>buildRow(p,i,false)).join('') : empty;
     if (full) {
       const prevSnap = getPreviousWeeklySnapshot();
-      const previousBoard = getPreviousWeeklyLeaderboard().slice(0, 7);
+      const previousBoard = (state.sharedPreviousWeeklyLeaderboard && state.sharedPreviousWeeklyLeaderboard.length ? state.sharedPreviousWeeklyLeaderboard : getPreviousWeeklyLeaderboard()).slice(0, 7);
       const activeBoard = state.leaderboardTab === 'weekly' ? weeklyBoard : state.leaderboardTab === 'previous' ? previousBoard : totalBoard;
       const weeklyHead = state.leaderboardTab === 'weekly'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)} · Top 7 · Auto realtime update</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.start || weeklySeason.start)} ~ ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.end || weeklySeason.end)} · Top 7 · Auto realtime update</div>`
         : state.leaderboardTab === 'previous'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${prevSnap.meta?.start ? formatDateTimeEnglish(prevSnap.meta.start) : 'No data'} ~ ${prevSnap.meta?.end ? formatDateTimeEnglish(prevSnap.meta.end) : 'No data'} · Finalized snapshot</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) : 'No data'} ~ ${((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) : 'No data'} · Finalized snapshot</div>`
         : '';
       const displayLimit = state.leaderboardTab === 'weekly' || state.leaderboardTab === 'previous' ? 7 : 30;
       const html = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
@@ -5313,6 +5435,7 @@ function ordinalSuffix(n) {
     try {
       state.allLeaderboardEntries = await state.remoteAdapter.fetchAll();
       state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
+      await fetchFirebaseWeeklyLeaderboards(7);
       if (state.remoteAdapter.subscribeRealtime) {
         state.remoteAdapter.subscribeRealtime(list => {
           state.allLeaderboardEntries = Array.isArray(list) ? list : [];
