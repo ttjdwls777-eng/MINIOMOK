@@ -292,10 +292,11 @@ function ordinalSuffix(n) {
       'fa-route-room','fa-route-game','fa-route-create-room','fa-route-friend-match','fa-route-friends'
     );
     document.body.classList.add(route);
+    document.body.classList.toggle('fa-needs-profile', !state.profile);
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
     if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
-    if (ui.main) ui.main.classList.toggle('hidden', screen === 'home' || screen === 'ranking');
+    if (ui.main) ui.main.classList.toggle('hidden', screen === 'ranking' || (screen === 'home' && !!state.profile));
 
     if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
     if (ui.navAi) ui.navAi.classList.toggle('active', visualScreen === 'ai');
@@ -1238,6 +1239,8 @@ function ordinalSuffix(n) {
       .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
       .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
       body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
+      body.fa-needs-profile.fa-route-home .fa-main { display:grid !important; }
+      body.fa-needs-profile.fa-route-home .fa-home-scene { display:block !important; }
       body.fa-route-home #fa-home-scene { display:block !important; }
       body.fa-route-ranking #fa-ranking-scene { display:block !important; }
       body.fa-route-ai .fa-right,
@@ -2100,6 +2103,11 @@ function ordinalSuffix(n) {
         }
         .fa-board-playerbar-name{ font-size:10px; }
         .fa-board-playerbar-stars{ font-size:10px; }
+        html, body, #fa-omok-app, .fa-wrap { height: 100svh; overflow: hidden; }
+        .fa-wrap { display:flex; flex-direction:column; }
+        .fa-topbar, .fa-scene-nav-wrap, .fa-top-wallet-row { flex: 0 0 auto; }
+        .fa-home-scene, .fa-ranking-scene, .fa-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+        .fa-main { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
       }
     `;
     document.head.appendChild(style);
@@ -3143,6 +3151,8 @@ function ordinalSuffix(n) {
   }
 
   async function confirmLobbyProfile() {
+    const hadProfileBefore = !!(state.profile && state.profile.nickname);
+    const previousNickname = state.profile?.nickname || '';
     const nickname = (ui.nickInput.value || '').trim();
     if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
       ui.nickNote.textContent = 'Use 2 to 18 letters or numbers.';
@@ -3204,6 +3214,14 @@ function ordinalSuffix(n) {
     updateFullscreenButtons();
     syncUI();
     if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
+    if (!hadProfileBefore || previousNickname !== nickname) {
+      try {
+        initAudio();
+        playRoomEventChime('create');
+        triggerHaptic('tap');
+      } catch (e) {}
+      openNoticePopup('Nickname Created', `${nickname} is ready. You can now enter matches.`, 'OK');
+    }
     return true;
   }
 
@@ -5545,14 +5563,12 @@ function ordinalSuffix(n) {
       ui.nickInput.value = state.profile.nickname || '';
       ui.nickNote.textContent = 'Update nickname before starting, or continue as is.';
     } else {
+      switchMatchMode('ai');
       openStartScreen();
-      ui.nickNote.textContent = 'Set your nickname first to enter the arena.';
+      ui.nickNote.textContent = 'Set your nickname first on the home screen to enter the arena.';
     }
-    state.appScreen = state.profile ? 'home' : 'ai';
+    state.appScreen = 'home';
     syncAppScreen();
-    if (!state.profile) {
-      navigateToScreen('ai', { bypassLock: true });
-    }
     updateMobileMode();
   }
 
