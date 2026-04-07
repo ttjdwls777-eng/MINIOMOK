@@ -1,4 +1,4 @@
-unction ordinalSuffix(n) {
+function ordinalSuffix(n) {
     const v = Math.abs(Number(n)) || 0;
     const mod100 = v % 100;
     if (mod100 >= 11 && mod100 <= 13) return 'th';
