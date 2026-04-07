@@ -233,7 +233,7 @@ function ordinalSuffix(n) {
   const ui = {};
 
   function hasActiveRoomSession() {
-    return !!(state.online && (state.online.roomId || state.online.roomCode) && state.online.status !== 'idle');
+    return !!(state.online && (state.online.roomId || state.online.roomCode));
   }
 
   function isRoomNavigationLocked() {
@@ -280,8 +280,11 @@ function ordinalSuffix(n) {
   function syncAppScreen() {
     const screen = resolveAppScreen();
     const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
-    const route = 'fa-route-' + (screen === 'online' ? 'online' : screen);
-    document.body.classList.remove('fa-route-home','fa-route-ranking','fa-route-ai','fa-route-online','fa-route-room','fa-route-game');
+    const route = 'fa-route-' + visualScreen;
+    document.body.classList.remove(
+      'fa-route-home','fa-route-ranking','fa-route-ai','fa-route-online',
+      'fa-route-room','fa-route-game','fa-route-create-room','fa-route-friend-match','fa-route-friends'
+    );
     document.body.classList.add(route);
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
@@ -1129,31 +1132,81 @@ function ordinalSuffix(n) {
       body.fa-route-ranking #fa-ranking-scene { display:block !important; }
       body.fa-route-ai .fa-right,
       body.fa-route-online .fa-right,
+      body.fa-route-create-room .fa-right,
+      body.fa-route-friend-match .fa-right,
+      body.fa-route-friends .fa-right,
       body.fa-route-room .fa-right { display:none !important; }
       body.fa-route-ai .fa-bottom,
       body.fa-route-online .fa-bottom,
+      body.fa-route-create-room .fa-bottom,
+      body.fa-route-friend-match .fa-bottom,
+      body.fa-route-friends .fa-bottom,
       body.fa-route-room .fa-bottom { display:none !important; }
       body.fa-route-ai #fa-board,
       body.fa-route-online #fa-board,
+      body.fa-route-create-room #fa-board,
+      body.fa-route-friend-match #fa-board,
+      body.fa-route-friends #fa-board,
       body.fa-route-room #fa-board { display:none !important; }
       body.fa-route-ai .fa-board-playerbar,
       body.fa-route-online .fa-board-playerbar,
+      body.fa-route-create-room .fa-board-playerbar,
+      body.fa-route-friend-match .fa-board-playerbar,
+      body.fa-route-friends .fa-board-playerbar,
       body.fa-route-room .fa-board-playerbar { display:none !important; }
       body.fa-route-ai .fa-board-wrap,
       body.fa-route-online .fa-board-wrap,
+      body.fa-route-create-room .fa-board-wrap,
+      body.fa-route-friend-match .fa-board-wrap,
+      body.fa-route-friends .fa-board-wrap,
       body.fa-route-room .fa-board-wrap { min-height: 560px; }
       body.fa-route-ai #fa-start-screen,
       body.fa-route-online #fa-start-screen,
+      body.fa-route-create-room #fa-start-screen,
+      body.fa-route-friend-match #fa-start-screen,
+      body.fa-route-friends #fa-start-screen,
       body.fa-route-room #fa-start-screen { display:grid !important; position:absolute; inset:0; }
       body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 640px); }
       body.fa-route-online .fa-stage-card.lobby,
+      body.fa-route-create-room .fa-stage-card.lobby,
+      body.fa-route-friend-match .fa-stage-card.lobby,
+      body.fa-route-friends .fa-stage-card.lobby,
       body.fa-route-room .fa-stage-card.lobby { width:min(100%, 720px); }
       body.fa-route-ai #fa-pause-screen,
       body.fa-route-ai #fa-overlay,
       body.fa-route-online #fa-pause-screen,
       body.fa-route-online #fa-overlay,
+      body.fa-route-create-room #fa-pause-screen,
+      body.fa-route-create-room #fa-overlay,
+      body.fa-route-friend-match #fa-pause-screen,
+      body.fa-route-friend-match #fa-overlay,
+      body.fa-route-friends #fa-pause-screen,
+      body.fa-route-friends #fa-overlay,
       body.fa-route-room #fa-pause-screen,
       body.fa-route-room #fa-overlay { display:none !important; }
+
+      body.fa-route-online .fa-status-row,
+      body.fa-route-create-room .fa-status-row,
+      body.fa-route-friend-match .fa-status-row,
+      body.fa-route-friends .fa-status-row,
+      body.fa-route-room .fa-status-row { display:none !important; }
+
+      body.fa-route-online .fa-stage-card.lobby,
+      body.fa-route-create-room .fa-stage-card.lobby,
+      body.fa-route-friend-match .fa-stage-card.lobby,
+      body.fa-route-friends .fa-stage-card.lobby,
+      body.fa-route-room .fa-stage-card.lobby { margin-top: 0; }
+
+      body.fa-route-online .fa-mode-switch,
+      body.fa-route-create-room .fa-mode-switch,
+      body.fa-route-friend-match .fa-mode-switch,
+      body.fa-route-friends .fa-mode-switch,
+      body.fa-route-room .fa-mode-switch,
+      body.fa-route-online .fa-lobby-result,
+      body.fa-route-create-room .fa-lobby-result,
+      body.fa-route-friend-match .fa-lobby-result,
+      body.fa-route-friends .fa-lobby-result,
+      body.fa-route-room .fa-lobby-result { display:none !important; }
       @media (max-width: 900px) {
         .fa-home-hero { grid-template-columns: 1fr; }
       }
@@ -2012,9 +2065,7 @@ function ordinalSuffix(n) {
     if (ui.navOnline) ui.navOnline.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
-      state.online.panelMode = 'none';
-      openStartScreen();
-      navigateToScreen('online');
+      openJoinRoomList();
     });
     if (ui.navCreateRoom) ui.navCreateRoom.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
@@ -2044,9 +2095,7 @@ function ordinalSuffix(n) {
     if (homeOnline) homeOnline.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
-      state.online.panelMode = 'none';
-      openStartScreen();
-      navigateToScreen('online');
+      openJoinRoomList();
     });
     if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
@@ -3306,7 +3355,7 @@ function ordinalSuffix(n) {
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'create';
     openStartScreen();
-    navigateToScreen('online', { bypassLock: true });
+    navigateToScreen('create-room', { bypassLock: true });
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
@@ -3636,7 +3685,7 @@ function ordinalSuffix(n) {
   async function openJoinRoomList() {
     state.online.panelMode = 'join';
     openStartScreen();
-    navigateToScreen('online', { bypassLock: true });
+    navigateToScreen('friend-match', { bypassLock: true });
     if (!window.firebase || !firebase.database) {
       ui.roomStatus.textContent = 'Firebase room sync is not available.';
       return;
@@ -3744,7 +3793,7 @@ function ordinalSuffix(n) {
     state.online.roomId = roomId;
     state.online.roomCode = accessCode || '';
     state.online.roomTitle = roomTitle;
-    state.online.panelMode = 'none';
+    state.online.panelMode = 'create';
     state.online.role = 'host';
     state.online.mySide = HUMAN;
     state.online.opponentName = 'Waiting...';
@@ -3845,7 +3894,7 @@ function ordinalSuffix(n) {
     state.online.roomId = roomId;
     state.online.roomCode = room.accessCode || room.code || '';
     state.online.roomTitle = room.title || '';
-    state.online.panelMode = 'none';
+    state.online.panelMode = room.hostId === state.profile.id ? 'create' : 'friend-match';
     state.online.role = room.hostId === state.profile.id ? 'host' : 'guest';
     state.online.mySide = state.online.role === 'host' ? HUMAN : AI;
     state.online.opponentName = state.online.role === 'host' ? (room.guestNickname || 'Waiting...') : (room.hostNickname || 'Host');
@@ -4118,29 +4167,45 @@ function ordinalSuffix(n) {
     const hasRoom = !!(state.online.roomId || state.online.roomCode);
     const inFriendMode = isOnlineMode();
     const panelMode = state.online.panelMode || 'none';
-    const joinListOpen = inFriendMode && !hasRoom && panelMode === 'join';
-    const createComposerOpen = inFriendMode && !hasRoom && panelMode === 'create';
-    const showEntryButtons = inFriendMode && !hasRoom && !joinListOpen && !createComposerOpen;
-    if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !createComposerOpen);
-    if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !createComposerOpen);
-    if (ui.roomStakePills) ui.roomStakePills.forEach(btn => btn.classList.toggle('hidden', !createComposerOpen));
+    const screen = resolveAppScreen();
+    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
+
+    const dedicatedCreate = visualScreen === 'create-room';
+    const dedicatedJoin = visualScreen === 'friend-match' || visualScreen === 'online';
+    const dedicatedFriends = visualScreen === 'friends';
+    const dedicatedRoom = visualScreen === 'room';
+
+    const showCreateComposer = inFriendMode && !hasRoom && dedicatedCreate;
+    const showJoinList = inFriendMode && !hasRoom && dedicatedJoin;
+    const showFriendsList = inFriendMode && dedicatedFriends;
+    const showRoomPresence = inFriendMode && hasRoom && dedicatedRoom;
+
+    if (ui.modeAi) ui.modeAi.classList.toggle('hidden', visualScreen !== 'ai' && visualScreen !== 'home');
+    if (ui.modeFriend) ui.modeFriend.classList.add('hidden');
+    if (ui.modeFriends) ui.modeFriends.classList.add('hidden');
+    if (ui.modeCreateRoom) ui.modeCreateRoom.classList.add('hidden');
+
+    if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !showCreateComposer);
+    if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !showCreateComposer);
     if (ui.roomStakePills && ui.roomStakePills.length) {
+      ui.roomStakePills.forEach(btn => btn.classList.toggle('hidden', !showCreateComposer));
       const pillsWrap = ui.roomStakePills[0].parentElement;
-      if (pillsWrap) pillsWrap.classList.toggle('hidden', !createComposerOpen);
+      if (pillsWrap) pillsWrap.classList.toggle('hidden', !showCreateComposer);
     }
-    if (ui.createRoomBtn) ui.createRoomBtn.classList.toggle('hidden', !createComposerOpen);
-    if (ui.joinRoomBtn) ui.joinRoomBtn.classList.toggle('hidden', !showEntryButtons);
-    if (ui.modeCreateRoom) ui.modeCreateRoom.classList.toggle('hidden', !(inFriendMode && !hasRoom));
-    if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !joinListOpen);
-    if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !(inFriendMode && hasRoom));
-    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', inFriendMode && hasRoom);
-    const friendsOpen = state.online.panelMode === 'friends';
+
+    if (ui.createRoomBtn) ui.createRoomBtn.classList.toggle('hidden', !showCreateComposer);
+    if (ui.joinRoomBtn) ui.joinRoomBtn.classList.add('hidden');
+    if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !showRoomPresence);
+    if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !showJoinList);
+    if (ui.friendsPanel) ui.friendsPanel.classList.toggle('hidden', !showFriendsList);
+    if (ui.roomPresence) ui.roomPresence.classList.toggle('hidden', !showRoomPresence);
+    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', showCreateComposer || showJoinList || showFriendsList || showRoomPresence);
+    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', showRoomPresence);
+
     if (ui.friendPanel) {
-      ui.friendPanel.classList.toggle('join-list-open', joinListOpen);
-      ui.friendPanel.classList.toggle('create-room-open', createComposerOpen);
+      ui.friendPanel.classList.toggle('join-list-open', showJoinList);
+      ui.friendPanel.classList.toggle('create-room-open', showCreateComposer);
     }
-    if (ui.roomPresence) ui.roomPresence.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || !inFriendMode || !hasRoom);
-    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || (inFriendMode && hasRoom));
   }
 
   function syncUI() {
