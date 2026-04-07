@@ -210,9 +210,13 @@ function ordinalSuffix(n) {
   function navigateToScreen(screen, options = {}) {
     const target = String(screen || 'home');
     const bypassLock = !!options.bypassLock;
-    if (isRoomNavigationLocked() && !bypassLock && !['room','game','ranking'].includes(target)) {
+    const locked = isRoomNavigationLocked() && !['room','game','ranking'].includes(target);
+    if (locked && !bypassLock) {
       state.appScreen = 'room';
-    } else if (target === 'ranking') {
+      syncAppScreen();
+      return false;
+    }
+    if (target === 'ranking') {
       state.appScreen = 'ranking';
       state.lastNonGameScreen = 'ranking';
     } else if (target === 'game') {
@@ -222,6 +226,7 @@ function ordinalSuffix(n) {
       state.lastNonGameScreen = target;
     }
     syncAppScreen();
+    return true;
   }
 
   function syncAppScreen() {
@@ -1060,14 +1065,33 @@ function ordinalSuffix(n) {
       body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
       body.fa-route-home #fa-home-scene { display:block !important; }
       body.fa-route-ranking #fa-ranking-scene { display:block !important; }
+      body.fa-route-ai .fa-right,
+      body.fa-route-online .fa-right,
       body.fa-route-room .fa-right { display:none !important; }
+      body.fa-route-ai .fa-bottom,
+      body.fa-route-online .fa-bottom,
       body.fa-route-room .fa-bottom { display:none !important; }
+      body.fa-route-ai #fa-board,
+      body.fa-route-online #fa-board,
       body.fa-route-room #fa-board { display:none !important; }
+      body.fa-route-ai .fa-board-playerbar,
+      body.fa-route-online .fa-board-playerbar,
       body.fa-route-room .fa-board-playerbar { display:none !important; }
+      body.fa-route-ai .fa-board-wrap,
+      body.fa-route-online .fa-board-wrap,
       body.fa-route-room .fa-board-wrap { min-height: 560px; }
+      body.fa-route-ai #fa-start-screen,
+      body.fa-route-online #fa-start-screen,
       body.fa-route-room #fa-start-screen { display:grid !important; position:absolute; inset:0; }
+      body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 640px); }
+      body.fa-route-online .fa-stage-card.lobby,
       body.fa-route-room .fa-stage-card.lobby { width:min(100%, 720px); }
-      body.fa-route-room #fa-pause-screen, body.fa-route-room #fa-overlay { display:none !important; }
+      body.fa-route-ai #fa-pause-screen,
+      body.fa-route-ai #fa-overlay,
+      body.fa-route-online #fa-pause-screen,
+      body.fa-route-online #fa-overlay,
+      body.fa-route-room #fa-pause-screen,
+      body.fa-route-room #fa-overlay { display:none !important; }
       @media (max-width: 900px) {
         .fa-home-hero { grid-template-columns: 1fr; }
       }
@@ -1914,19 +1938,36 @@ function ordinalSuffix(n) {
 
     root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
     if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
-    if (ui.navAi) ui.navAi.addEventListener('click', () => { switchMatchMode('ai'); openStartScreen(); navigateToScreen('ai', { bypassLock: true }); });
-    if (ui.navOnline) ui.navOnline.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room', { bypassLock: true }); return; }
-      switchMatchMode('friend');
+    if (ui.navAi) ui.navAi.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('ai');
       openStartScreen();
-      navigateToScreen('online', { bypassLock: true });
+      navigateToScreen('ai');
+    });
+    if (ui.navOnline) ui.navOnline.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('friend');
+      state.online.panelMode = 'none';
+      openStartScreen();
+      navigateToScreen('online');
     });
     if (ui.navRanking) ui.navRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     const homeAi = root.querySelector('#fa-home-go-ai');
     const homeOnline = root.querySelector('#fa-home-go-online');
     const homeRanking = root.querySelector('#fa-home-go-ranking');
-    if (homeAi) homeAi.addEventListener('click', () => { switchMatchMode('ai'); openStartScreen(); navigateToScreen('ai', { bypassLock: true }); });
-    if (homeOnline) homeOnline.addEventListener('click', () => { switchMatchMode('friend'); openStartScreen(); navigateToScreen('online', { bypassLock: true }); });
+    if (homeAi) homeAi.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('ai');
+      openStartScreen();
+      navigateToScreen('ai');
+    });
+    if (homeOnline) homeOnline.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('friend');
+      state.online.panelMode = 'none';
+      openStartScreen();
+      navigateToScreen('online');
+    });
     if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
     if (ui.leaderTabTotal) ui.leaderTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
@@ -3162,8 +3203,8 @@ function ordinalSuffix(n) {
 
   function switchMatchMode(mode) {
     if (isRoomNavigationLocked() && mode !== 'friend') {
-      navigateToScreen('room', { bypassLock: true });
-      return;
+      navigateToScreen('room');
+      return false;
     }
     state.matchMode = mode === 'friend' ? 'friend' : 'ai';
     if (state.matchMode === 'ai') {
@@ -3175,9 +3216,9 @@ function ordinalSuffix(n) {
       state.appScreen = 'online';
     }
     setRoomListLocked(false);
-    state.appScreen = 'online';
     syncUI();
     renderLobbyStatus();
+    return true;
   }
 
   function openCreateRoomComposer() {
