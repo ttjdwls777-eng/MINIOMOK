@@ -106,59 +106,9 @@ function ordinalSuffix(n) {
       );
     }
   }
-
 };
 
-  const FirebaseSeasonLeaderboardAdapter = {
-    seasonPath(key) {
-      return 'leaderboards/omokWeekly/' + String(key || '');
-    },
-
-    async fetchSeasonTop(key, limit = 50) {
-      if (!key) return [];
-      try {
-        const snapshot = await firebase
-          .database()
-          .ref(this.seasonPath(key))
-          .once('value');
-
-        const data = snapshot.val();
-        if (!data) return [];
-
-        const list = Object.values(data)
-          .filter(Boolean)
-          .map(entry => ({
-            ...entry,
-            totalWins: Number(entry.weeklyWins || 0),
-            totalLosses: Number(entry.weeklyLosses || 0),
-            totalGames: Number(entry.weeklyGames || 0)
-          }));
-
-        return sanitizeLeaderboardEntries(list).slice(0, limit);
-      } catch (e) {
-        console.error('fetchSeasonTop firebase error:', e);
-        return [];
-      }
-    },
-
-    async saveSeasonEntry(key, entry) {
-      if (!key || !entry || !entry.id) return false;
-      try {
-        await firebase
-          .database()
-          .ref(this.seasonPath(key) + '/' + entry.id)
-          .set({
-            ...entry,
-            weeklyKey: key,
-            updatedAt: Date.now()
-          });
-        return true;
-      } catch (e) {
-        console.error('saveSeasonEntry firebase error:', e);
-        return false;
-      }
-    }
-
+  const state = {
     profile: null,
     board: createBoard(),
     turn: HUMAN,
@@ -238,12 +188,7 @@ function ordinalSuffix(n) {
     },
     nextStarter: HUMAN,
     appScreen: 'home',
-    lastNonGameScreen: 'home',
-    leaderboardLiveHandles: {
-      total: null,
-      weekly: null,
-      weeklyKey: ''
-    }
+    lastNonGameScreen: 'home'
   };
 
   const ui = {};
@@ -631,59 +576,6 @@ function ordinalSuffix(n) {
     const snap = getPreviousWeeklySnapshot();
     const board = Array.isArray(snap.board) ? snap.board : [];
     return sanitizeLeaderboardEntries(board.filter(v => Number(v.weeklyWins || 0) > 0).map(v => ({ ...v, totalWins: Number(v.weeklyWins || 0), totalLosses: Number(v.weeklyLosses || 0), totalGames: Number(v.weeklyGames || 0) })));
-  }
-
-
-  async function fetchWeeklyLeaderboardLive(limit = 50) {
-    const season = ensureWeeklySeason();
-    const firebaseBoard = await FirebaseSeasonLeaderboardAdapter.fetchSeasonTop(season.key, limit);
-    if (firebaseBoard.length) return firebaseBoard;
-    return getWeeklyLeaderboard().slice(0, limit);
-  }
-
-  async function saveWeeklyLeaderboardLive(entry) {
-    const season = ensureWeeklySeason();
-    upsertWeeklyLeaderboard(entry);
-    await FirebaseSeasonLeaderboardAdapter.saveSeasonEntry(season.key, {
-      ...entry,
-      weeklyWins: Number(entry.weeklyWins || 0),
-      weeklyLosses: Number(entry.weeklyLosses || 0),
-      weeklyGames: Number(entry.weeklyGames || 0),
-      rank: entry.rank || getCurrentRankFromState()
-    });
-  }
-
-  function detachRealtimeLeaderboards() {
-    const live = state.leaderboardLiveHandles || {};
-    try { live.total && live.total.off && live.total.off(); } catch {}
-    try { live.weekly && live.weekly.off && live.weekly.off(); } catch {}
-    state.leaderboardLiveHandles = { total: null, weekly: null, weeklyKey: '' };
-  }
-
-  function attachRealtimeLeaderboards() {
-    if (!window.firebase || !firebase.database) return;
-    if (!state.leaderboardLiveHandles) {
-      state.leaderboardLiveHandles = { total: null, weekly: null, weeklyKey: '' };
-    }
-    const season = ensureWeeklySeason();
-
-    if (!state.leaderboardLiveHandles.total) {
-      const totalRef = firebase.database().ref('leaderboards/omok');
-      totalRef.on('value', async () => {
-        try { await renderLeaderboard(true); } catch (e) {}
-      });
-      state.leaderboardLiveHandles.total = totalRef;
-    }
-
-    if (state.leaderboardLiveHandles.weeklyKey !== season.key) {
-      try { state.leaderboardLiveHandles.weekly && state.leaderboardLiveHandles.weekly.off && state.leaderboardLiveHandles.weekly.off(); } catch {}
-      const weeklyRef = firebase.database().ref(FirebaseSeasonLeaderboardAdapter.seasonPath(season.key));
-      weeklyRef.on('value', async () => {
-        try { await renderLeaderboard(true); } catch (e) {}
-      });
-      state.leaderboardLiveHandles.weekly = weeklyRef;
-      state.leaderboardLiveHandles.weeklyKey = season.key;
-    }
   }
 
 
@@ -4268,7 +4160,6 @@ function ordinalSuffix(n) {
 
   async function syncProfileToLeaderboard() {
     if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
-    const season = ensureWeeklySeason();
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -4283,11 +4174,11 @@ function ordinalSuffix(n) {
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: season.key,
+      weeklyKey: ensureWeeklySeason().key,
       stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
-    await saveWeeklyLeaderboardLive(entry);
+    upsertWeeklyLeaderboard(entry);
     state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
   }
 
@@ -4338,9 +4229,7 @@ function ordinalSuffix(n) {
       .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }))
       .sort(compareLeaderboard)
       .slice(0, 50);
-    const firebaseWeeklyBoard = await fetchWeeklyLeaderboardLive(50);
-    if (firebaseWeeklyBoard.length) weeklyBoard = firebaseWeeklyBoard;
-    else if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
+    if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
 
     const rankMark = i => {
       if (i === 0) return { cls: 'crown-top', label: '👑' };
@@ -5220,7 +5109,6 @@ function ordinalSuffix(n) {
     restore();
     createShell();
     syncUI();
-    attachRealtimeLeaderboards();
     await renderLeaderboard();
     renderBoard();
     if (state.profile) {
