@@ -41,6 +41,7 @@ function ordinalSuffix(n) {
   const STAR_BALANCE_DEFAULT = 10000;
   const STAR_WAGER_OPTIONS = [100, 1000, 10000];
   const STAR_WIN_RATE = 0.85;
+  const ROOM_SESSION_STORAGE_KEY = 'fa_omok_session_id_v1';
 
   const FirebaseLeaderboardAdapter = {
   mode: 'firebase-ready',
@@ -129,6 +130,8 @@ function ordinalSuffix(n) {
     started: false,
     paused: false,
     phase: 'intro',
+    scene: 'lobby',
+    sessionId: '',
     winningLine: [],
     remoteAdapter: FirebaseLeaderboardAdapter,
     leaderboardCache: [],
@@ -181,7 +184,10 @@ function ordinalSuffix(n) {
       incoming: [],
       profileHandle: null,
       challengeHandle: null,
-      lastLoadedAt: 0
+      lastLoadedAt: 0,
+      popupChallengeId: '',
+      challengePopupOpen: false,
+      dismissedChallengeId: localStorage.getItem('fa_omok_dismissed_challenge_id') || ''
     },
     nextStarter: HUMAN
   };
@@ -198,6 +204,18 @@ function ordinalSuffix(n) {
 
   function uid() {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  function getSessionId() {
+    try {
+      const cached = sessionStorage.getItem(ROOM_SESSION_STORAGE_KEY);
+      if (cached) return cached;
+      const next = uid();
+      sessionStorage.setItem(ROOM_SESSION_STORAGE_KEY, next);
+      return next;
+    } catch {
+      return uid();
+    }
   }
 
   function normalizeStars(value) {
@@ -1026,6 +1044,56 @@ function ordinalSuffix(n) {
         max-width: 1440px; margin: 0 auto; padding: 8px 22px 28px;
         display: grid; grid-template-columns: minmax(0, 1.15fr) 380px; gap: 22px;
       }
+      #fa-omok-app[data-scene="room"] .fa-right,
+      #fa-omok-app[data-scene="room"] .fa-bottom,
+      #fa-omok-app[data-scene="room"] .fa-status-row,
+      #fa-omok-app[data-scene="room"] #fa-board,
+      #fa-omok-app[data-scene="room"] #fa-open-leaderboard,
+      #fa-omok-app[data-scene="room"] #fa-pause-top-btn { display: none !important; }
+      #fa-omok-app[data-scene="room"] .fa-main { grid-template-columns: 1fr; }
+      #fa-omok-app[data-scene="room"] .fa-panel.hero { padding: 18px; }
+      #fa-omok-app[data-scene="room"] .fa-board-wrap {
+        min-height: 760px;
+        align-items: stretch;
+        padding: 18px;
+        background:
+          radial-gradient(circle at top, rgba(255,231,177,.10), transparent 34%),
+          linear-gradient(180deg, rgba(255,246,224,.10), rgba(255,246,224,.03)),
+          linear-gradient(135deg, rgba(95,59,29,.52), rgba(49,28,13,.70));
+      }
+      #fa-omok-app[data-scene="room"] #fa-start-screen {
+        position: relative;
+        inset: auto;
+        width: 100%;
+        background: transparent;
+        padding: 0;
+      }
+      #fa-omok-app[data-scene="room"] .fa-stage-card.lobby {
+        width: min(100%, 980px);
+        padding: 30px;
+        text-align: left;
+        border-radius: 30px;
+        background:
+          linear-gradient(180deg, rgba(83,52,25,.96), rgba(42,24,12,.98)),
+          radial-gradient(circle at top right, rgba(255,222,151,.10), transparent 40%);
+      }
+      #fa-omok-app[data-scene="room"] .fa-stage-actions,
+      #fa-omok-app[data-scene="room"] .fa-stage-actions.split { justify-content: flex-start; }
+      #fa-omok-app[data-scene="room"] .fa-room-presence,
+      #fa-omok-app[data-scene="room"] .fa-friend-panel {
+        display: block !important;
+        margin-top: 18px;
+      }
+      #fa-omok-app[data-scene="room"] .fa-mode-switch,
+      #fa-omok-app[data-scene="room"] .fa-start-profile,
+      #fa-omok-app[data-scene="room"] #fa-lobby-confirm-actions,
+      #fa-omok-app[data-scene="room"] #fa-mode-ai,
+      #fa-omok-app[data-scene="room"] #fa-mode-friend,
+      #fa-omok-app[data-scene="room"] #fa-mode-friends,
+      #fa-omok-app[data-scene="room"] #fa-mode-create-room,
+      #fa-omok-app[data-scene="room"] #fa-open-rooms-panel,
+      #fa-omok-app[data-scene="room"] #fa-friends-panel { display: none !important; }
+      #fa-omok-app[data-scene="room"] .fa-friend-panel { padding: 0; border: 0; background: transparent; }
       .fa-panel {
         background: linear-gradient(180deg, rgba(97,63,31,.34), rgba(52,32,17,.28));
         border: 1px solid var(--line);
@@ -2087,6 +2155,11 @@ function ordinalSuffix(n) {
   }
 
   function openFriendsPanel() {
+    if (hasActiveRoom()) {
+      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before moving to Friends.';
+      openNoticePopup('Room Active', 'You are already inside a room. Leave the room first to open the Friends list.', 'Confirm');
+      return;
+    }
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'friends';
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
@@ -2155,7 +2228,8 @@ function ordinalSuffix(n) {
             targetRank: friend?.rank || '1 Grade',
             stake: wager,
             status: 'pending',
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            expiresAt: Date.now() + (1000 * 120)
           });
           if (ui.roomStatus) ui.roomStatus.textContent = `${friend?.nickname || 'Friend'} challenge sent for ★ ${formatNumber(wager)}.`;
         } catch (e) {
@@ -2163,6 +2237,38 @@ function ordinalSuffix(n) {
         }
       }
     });
+  }
+
+  function showIncomingChallengePopup(challenge) {
+    if (!challenge || !challenge.id) return;
+    state.friends.popupChallengeId = challenge.id;
+    state.friends.challengePopupOpen = true;
+    initAudio();
+    try { playRoomEventChime('join'); } catch (e) {}
+    openConfirm({
+      title: 'Challenge Request',
+      text: `${challenge.challengerNickname || 'Friend'} [${challenge.challengerRank || '1 Grade'}]\nStake ★ ${formatNumber(challenge.stake || 0)}\n\nAccept this duel request?`,
+      confirmLabel: 'Accept',
+      onConfirm: async () => {
+        state.friends.challengePopupOpen = false;
+        await acceptFriendChallenge(challenge.id, true);
+      },
+      onCancel: async () => {
+        state.friends.challengePopupOpen = false;
+        state.friends.popupChallengeId = '';
+        state.friends.dismissedChallengeId = challenge.id;
+        try { localStorage.setItem('fa_omok_dismissed_challenge_id', challenge.id); } catch (e) {}
+        try {
+          if (challenge && challenge.id && state.profile?.id && window.firebase && firebase.database) {
+            const ref = firebase.database().ref('omokFriendChallenges/' + state.profile.id + '/' + challenge.id);
+            await ref.update({ status: 'declined', declinedAt: Date.now() });
+          }
+        } catch(e) {}
+      },
+      timeoutMs: Math.max(0, Number(challenge.expiresAt || 0) - Date.now())
+    });
+    const cancel = ui.root.querySelector('#fa-confirm-cancel');
+    if (cancel) cancel.textContent = 'Later';
   }
 
   async function subscribeFriendChallenges() {
@@ -2174,8 +2280,35 @@ function ordinalSuffix(n) {
       const ref = firebase.database().ref('omokFriendChallenges/' + state.profile.id);
       ref.on('value', snap => {
         const raw = snap.val() || {};
-        state.friends.incoming = Object.values(raw).filter(v => v && v.status === 'pending').sort((a,b) => Number(b.createdAt||0)-Number(a.createdAt||0));
+        const now = Date.now();
+        const pending = Object.values(raw)
+          .filter(v => v && v.status === 'pending' && (!v.expiresAt || Number(v.expiresAt) > now))
+          .sort((a,b) => Number(b.createdAt||0)-Number(a.createdAt||0));
+        const popupId = state.friends.popupChallengeId || '';
+        const dismissedId = state.friends.dismissedChallengeId || '';
+        const popupStillExists = popupId && pending.some(v => v.id === popupId);
+        const dismissedStillExists = dismissedId && pending.some(v => v.id === dismissedId);
+        if (popupId && !popupStillExists) {
+          const wasOpen = !!state.friends.challengePopupOpen;
+          state.friends.popupChallengeId = '';
+          state.friends.challengePopupOpen = false;
+          if (wasOpen) {
+            closeConfirm();
+            openNoticePopup('Challenge Removed', 'Challenge request has expired or was removed.', 'Confirm');
+          }
+        }
+        if (dismissedId && !dismissedStillExists) {
+          state.friends.dismissedChallengeId = '';
+          try { localStorage.removeItem('fa_omok_dismissed_challenge_id'); } catch (e) {}
+        }
+        state.friends.incoming = pending;
         renderIncomingChallenges();
+        if (!state.friends.challengePopupOpen && pending.length) {
+          const nextChallenge = popupStillExists
+            ? pending.find(v => v.id === popupId)
+            : pending.find(v => v.id !== dismissedId);
+          if (nextChallenge) showIncomingChallengePopup(nextChallenge);
+        }
       });
       state.friends.challengeHandle = ref;
     } catch (e) {
@@ -2200,27 +2333,43 @@ function ordinalSuffix(n) {
     Array.from(ui.friendsList.querySelectorAll('[data-accept-challenge]')).forEach(btn => btn.addEventListener('click', () => acceptFriendChallenge(btn.getAttribute('data-accept-challenge'))));
   }
 
-  async function acceptFriendChallenge(challengeId) {
+  async function acceptFriendChallenge(challengeId, fromPopup = false) {
     const challenge = (state.friends.incoming || []).find(v => v.id === challengeId);
-    if (!challenge || !window.firebase || !firebase.database || !state.profile?.id) return;
-    const wager = normalizeStarWager(challenge.stake, STAR_WAGER_OPTIONS[0]);
-    if (!canAffordStars(wager)) {
-      if (ui.roomStatus) ui.roomStatus.textContent = `Not enough stars. Need ★ ${formatNumber(wager)}.`;
-      return;
-    }
+    if (!window.firebase || !firebase.database || !state.profile?.id) return;
+    const challengeRef = firebase.database().ref('omokFriendChallenges/' + state.profile.id + '/' + challengeId);
     try {
-      await firebase.database().ref('omokFriendChallenges/' + state.profile.id + '/' + challengeId).update({ status: 'accepted', acceptedAt: Date.now() });
+      const snap = await challengeRef.once('value');
+      const live = snap.val();
+      if (!live || live.status !== 'pending' || (live.expiresAt && Number(live.expiresAt) <= Date.now())) {
+        state.friends.popupChallengeId = '';
+        state.friends.challengePopupOpen = false;
+        state.friends.dismissedChallengeId = '';
+        try { localStorage.removeItem('fa_omok_dismissed_challenge_id'); } catch (e) {}
+        openNoticePopup('Challenge Removed', 'Challenge request has expired or was removed.', 'Confirm');
+        return;
+      }
+      const wager = normalizeStarWager(live.stake, STAR_WAGER_OPTIONS[0]);
+      if (!canAffordStars(wager)) {
+        if (ui.roomStatus) ui.roomStatus.textContent = `Not enough stars. Need ★ ${formatNumber(wager)}.`;
+        openNoticePopup('Not Enough Stars', `You need ★ ${formatNumber(wager)} to accept this challenge.`, 'Confirm');
+        return;
+      }
+      await challengeRef.update({ status: 'accepted', acceptedAt: Date.now() });
+      state.friends.popupChallengeId = '';
+      state.friends.dismissedChallengeId = '';
+      state.friends.challengePopupOpen = false;
+      try { localStorage.removeItem('fa_omok_dismissed_challenge_id'); } catch (e) {}
       switchMatchMode('friend');
       state.online.starWager = wager;
-      if (ui.roomTitleInput) ui.roomTitleInput.value = `${challenge.challengerNickname || 'Friend'} Duel`;
-      await createOnlineRoom(null, { roomTitle: `${challenge.challengerNickname || 'Friend'} Duel`, roomCode: '', starWager: wager, autoStart: false, inviteOnly: false });
+      if (ui.roomTitleInput) ui.roomTitleInput.value = `${live.challengerNickname || 'Friend'} Duel`;
+      await createOnlineRoom(null, { roomTitle: `${live.challengerNickname || 'Friend'} Duel`, roomCode: '', starWager: wager, autoStart: false, inviteOnly: false });
       const code = state.online.roomCode || '';
-      await firebase.database().ref('omokFriendChallenges/' + challenge.challengerId).push().set({
+      await firebase.database().ref('omokFriendChallenges/' + live.challengerId).push().set({
         id: uid(),
         challengerId: state.profile.id,
         challengerNickname: state.profile.nickname,
-        targetId: challenge.challengerId,
-        targetNickname: challenge.challengerNickname,
+        targetId: live.challengerId,
+        targetNickname: live.challengerNickname,
         stake: wager,
         status: 'room_ready',
         roomId: state.online.roomId,
@@ -2230,6 +2379,7 @@ function ordinalSuffix(n) {
       if (ui.roomStatus) ui.roomStatus.textContent = `Challenge accepted. Room created for ★ ${formatNumber(wager)}.`;
     } catch (e) {
       console.log('accept challenge ignored:', e);
+      if (fromPopup) openNoticePopup('Challenge Removed', 'Challenge request has expired or was removed.', 'Confirm');
     }
   }
 
@@ -2240,9 +2390,13 @@ function ordinalSuffix(n) {
         try { state.friends.profileHandle.off(); } catch {}
       }
       const ref = firebase.database().ref('omokFriendChallenges/' + state.profile.id);
-      ref.on('child_added', snap => {
+      ref.on('child_added', async snap => {
         const item = snap.val();
         if (!item || item.status !== 'room_ready' || item.targetId !== state.profile.id) return;
+        if (item.consumedByTarget) return;
+        try {
+          await snap.ref.update({ consumedByTarget: true, consumedAt: Date.now() });
+        } catch (e) {}
         if (ui.roomStatus) ui.roomStatus.textContent = `${item.targetNickname || 'Friend'} accepted. Joining challenge room...`;
         joinOnlineRoom(item.roomCode || '', item.roomId || '');
       });
@@ -2732,6 +2886,11 @@ function ordinalSuffix(n) {
   }
 
   function backToLobby() {
+    if (hasActiveRoom()) {
+      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before returning to the lobby.';
+      openNoticePopup('Room Active', 'Leave the current room first. The room screen stays locked until you press Leave Room.', 'Confirm');
+      return;
+    }
     state.lobbyConfirmed = !!(state.profile && state.profile.nickname);
     state.paused = false;
     state.started = false;
@@ -2750,6 +2909,7 @@ function ordinalSuffix(n) {
     ui.startScreen.classList.remove('hidden');
     state.phase = 'intro';
     state.started = false;
+    if (hasActiveRoom()) state.scene = 'room';
     clearPendingMove();
     setCountdownVisible(false, '', false);
     state.lobbyConfirmed = !!(state.profile && state.profile.nickname);
@@ -2807,6 +2967,35 @@ function ordinalSuffix(n) {
     return state.matchMode === 'friend';
   }
 
+  function hasActiveRoom() {
+    return !!(state.online.roomId || state.online.roomCode);
+  }
+
+  function getDesiredScene() {
+    if (state.started || state.phase === 'playing' || state.phase === 'countdown' || state.phase === 'paused') return 'game';
+    if (isOnlineMode() && hasActiveRoom()) return 'room';
+    return 'lobby';
+  }
+
+  function applyScene() {
+    state.scene = getDesiredScene();
+    if (ui.root) ui.root.setAttribute('data-scene', state.scene);
+    document.body.setAttribute('data-fa-scene', state.scene);
+  }
+
+  function isSameRoomOwner(room) {
+    if (!room || !state.profile) return false;
+    const myId = String(state.profile.id || '');
+    const myName = String(state.profile.nickname || '').trim().toLowerCase();
+    const hostId = String(room.hostId || '');
+    const hostName = String(room.hostNickname || '').trim().toLowerCase();
+    return (!!myId && hostId === myId) || (!!myName && hostName && hostName === myName);
+  }
+
+  function normalizeRoomStateAfterLeave() {
+    return { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
+  }
+
   function normalizeRoomCode(value) {
     return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
   }
@@ -2846,6 +3035,11 @@ function ordinalSuffix(n) {
   }
 
   function switchMatchMode(mode) {
+    if (hasActiveRoom()) {
+      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before moving to another menu.';
+      openNoticePopup('Room Active', 'Leave the current room first. Once you exit the room, you can move to another menu.', 'Confirm');
+      return;
+    }
     state.matchMode = mode === 'friend' ? 'friend' : 'ai';
     if (state.matchMode === 'ai') {
       state.online.status = 'idle';
@@ -2859,6 +3053,11 @@ function ordinalSuffix(n) {
   }
 
   function openCreateRoomComposer() {
+    if (hasActiveRoom()) {
+      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before creating another one.';
+      openNoticePopup('Room Active', 'You already have an active room. Leave it first before creating another room.', 'Confirm');
+      return;
+    }
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'create';
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
@@ -2908,7 +3107,7 @@ function ordinalSuffix(n) {
     try {
       if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
         stopOnlinePresence();
-        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
+        state.online = normalizeRoomStateAfterLeave();
         if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
         syncUI();
         return;
@@ -2967,7 +3166,7 @@ function ordinalSuffix(n) {
       console.log('leave room error ignored:', e);
     }
     stopOnlinePresence();
-        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
+        state.online = normalizeRoomStateAfterLeave();
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     setRoomListLocked(false);
     syncUI();
@@ -3184,6 +3383,11 @@ function ordinalSuffix(n) {
   }
 
   async function openJoinRoomList() {
+    if (hasActiveRoom()) {
+      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before opening the room list.';
+      openNoticePopup('Room Active', 'You are already inside a room. Leave the room first to browse other rooms.', 'Confirm');
+      return;
+    }
     state.online.panelMode = 'join';
     if (!window.firebase || !firebase.database) {
       ui.roomStatus.textContent = 'Firebase room sync is not available.';
@@ -3286,6 +3490,7 @@ function ordinalSuffix(n) {
       createdAt: now,
       hostPingAt: now,
       guestPingAt: 0,
+      ownerSessionId: state.sessionId || '',
       updatedAt: now
     };
     await roomRef.set(payload);
@@ -3355,6 +3560,11 @@ function ordinalSuffix(n) {
 
     if (!room) {
       ui.roomStatus.textContent = 'Room not found.';
+      return;
+    }
+    if (isSameRoomOwner(room)) {
+      ui.roomStatus.textContent = 'You cannot join a room that you created yourself.';
+      openNoticePopup('Cannot Join Own Room', 'The same player cannot enter the room they created from another session. Leave that room first if you want to move elsewhere.', 'Confirm');
       return;
     }
     if (room.accessCode && !roomIdOverride) {
@@ -3536,7 +3746,7 @@ function ordinalSuffix(n) {
     const summary = `Record ${state.totalWins}W · ${state.totalLosses}L · Best Streak ${state.bestStreak}`;
     if (isOnlineMode()) {
       if (!(state.online.roomId || state.online.roomCode)) ui.lobbyText.textContent = 'Create your room title, choose a star stake, or open the room list, then start your online friendly match.';
-      else if (state.online.status === 'waiting') ui.lobbyText.textContent = `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' (' + state.online.roomCode + ')' : ''} is ready with ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}. ${state.online.roomCode ? 'Share the code and wait for your friend.' : 'Your friend can join from the room list.'}`;
+      else if (state.online.status === 'waiting') ui.lobbyText.textContent = `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' (' + state.online.roomCode + ')' : ''} has its own room screen now. Only Leave Room unlocks the other menus. Stake ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}. ${state.online.roomCode ? 'Share the code and wait for your friend.' : 'Your friend can join from the room list.'}`;
       else if (state.online.status === 'ready') ui.lobbyText.textContent = state.online.role === 'host' ? `${state.online.guestReady ? `Guest ready. Accept to begin the duel for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Waiting for your friend to press Ready for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`}` : `${state.online.guestReady ? `Ready locked. Waiting for the host to start ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Press Ready to join the duel for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`}`;
       else ui.lobbyText.textContent = `Online room ${state.online.roomTitle || (state.online.roomCode || 'Open Room')} synced · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`;
     } else {
@@ -3659,6 +3869,7 @@ function ordinalSuffix(n) {
     const panelMode = state.online.panelMode || 'none';
     const joinListOpen = inFriendMode && !hasRoom && panelMode === 'join';
     const createComposerOpen = inFriendMode && !hasRoom && panelMode === 'create';
+    const dedicatedRoomView = inFriendMode && hasRoom;
     const showEntryButtons = inFriendMode && !hasRoom && !joinListOpen && !createComposerOpen;
     if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !createComposerOpen);
     if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !createComposerOpen);
@@ -3672,17 +3883,19 @@ function ordinalSuffix(n) {
     if (ui.modeCreateRoom) ui.modeCreateRoom.classList.toggle('hidden', !(inFriendMode && !hasRoom));
     if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !joinListOpen);
     if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !(inFriendMode && hasRoom));
-    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', inFriendMode && hasRoom);
+    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', dedicatedRoomView);
     const friendsOpen = state.online.panelMode === 'friends';
     if (ui.friendPanel) {
       ui.friendPanel.classList.toggle('join-list-open', joinListOpen);
       ui.friendPanel.classList.toggle('create-room-open', createComposerOpen);
     }
     if (ui.roomPresence) ui.roomPresence.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || !inFriendMode || !hasRoom);
-    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || (inFriendMode && hasRoom));
+    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || dedicatedRoomView);
+    if (ui.lobbyResult) ui.lobbyResult.classList.toggle('hidden', dedicatedRoomView ? false : !state.lastResult);
   }
 
   function syncUI() {
+    applyScene();
     const rank = getCurrentRankFromState();
     if (state.profile) state.profile.rank = rank;
 
@@ -4756,6 +4969,7 @@ function ordinalSuffix(n) {
 
   async function boot() {
     ensureViewportLock();
+    state.sessionId = getSessionId();
     restore();
     createShell();
     syncUI();
