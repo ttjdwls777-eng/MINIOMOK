@@ -44,8 +44,9 @@ function ordinalSuffix(n) {
 
   const FirebaseLeaderboardAdapter = {
   mode: 'firebase-ready',
+  _realtimeRef: null,
 
-  async fetchTop(limit = 50) {
+  async fetchAll() {
     try {
       const snapshot = await firebase
         .database()
@@ -55,11 +56,46 @@ function ordinalSuffix(n) {
       const data = snapshot.val();
       if (!data) return [];
 
-      const list = Object.values(data).filter(Boolean);
-      return sanitizeLeaderboardEntries(list).slice(0, limit);
+      return sanitizeLeaderboardEntries(Object.values(data).filter(Boolean));
     } catch (e) {
-      console.error('fetchTop firebase error:', e);
-      return getLocalLeaderboard().slice(0, limit);
+      console.error('fetchAll firebase error:', e);
+      return getLocalLeaderboard();
+    }
+  },
+
+  async fetchTop(limit = 50) {
+    const list = await this.fetchAll();
+    return list.slice(0, limit);
+  },
+
+  subscribeRealtime(onChange) {
+    try {
+      if (!window.firebase || !firebase.database) return null;
+      if (this._realtimeRef) {
+        try { this._realtimeRef.off(); } catch {}
+      }
+      const ref = firebase.database().ref('leaderboards/omok');
+      ref.on('value', snap => {
+        try {
+          const data = snap.val() || {};
+          const list = sanitizeLeaderboardEntries(Object.values(data).filter(Boolean));
+          if (typeof onChange === 'function') onChange(list);
+        } catch (err) {
+          console.log('leaderboard realtime ignored:', err);
+        }
+      });
+      this._realtimeRef = ref;
+      return ref;
+    } catch (e) {
+      console.error('subscribeRealtime firebase error:', e);
+      return null;
+    }
+  },
+
+  unsubscribeRealtime() {
+    if (this._realtimeRef) {
+      try { this._realtimeRef.off(); } catch {}
+      this._realtimeRef = null;
     }
   },
 
@@ -72,7 +108,9 @@ function ordinalSuffix(n) {
         .ref('leaderboards/omok/' + entry.id)
         .set(entry);
 
-      state.leaderboardCache = await this.fetchTop(50);
+      const all = await this.fetchAll();
+      state.allLeaderboardEntries = all;
+      state.leaderboardCache = all.slice(0, 50);
       return true;
     } catch (e) {
       console.error('saveEntry firebase error:', e);
@@ -132,6 +170,7 @@ function ordinalSuffix(n) {
     winningLine: [],
     remoteAdapter: FirebaseLeaderboardAdapter,
     leaderboardCache: [],
+    allLeaderboardEntries: [],
     fullscreenRequested: false,
     lastResult: null,
     lobbyConfirmed: false,
@@ -201,6 +240,15 @@ function ordinalSuffix(n) {
     return hasActiveRoomSession();
   }
 
+  function getOnlineMenuScreen() {
+    const panel = state.online?.panelMode || 'none';
+    if (panel === 'create') return 'create-room';
+    if (panel === 'join') return 'friend-match';
+    if (panel === 'friends') return 'friends';
+    return 'online';
+  }
+
+
   function resolveAppScreen() {
     if (state.phase === 'playing' || state.phase === 'paused' || state.phase === 'countdown') return 'game';
     if (hasActiveRoomSession()) return 'room';
@@ -231,7 +279,8 @@ function ordinalSuffix(n) {
 
   function syncAppScreen() {
     const screen = resolveAppScreen();
-    const route = 'fa-route-' + screen;
+    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
+    const route = 'fa-route-' + (screen === 'online' ? 'online' : screen);
     document.body.classList.remove('fa-route-home','fa-route-ranking','fa-route-ai','fa-route-online','fa-route-room','fa-route-game');
     document.body.classList.add(route);
 
@@ -239,29 +288,38 @@ function ordinalSuffix(n) {
     if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
     if (ui.main) ui.main.classList.toggle('hidden', screen === 'home' || screen === 'ranking');
 
-    if (ui.navHome) ui.navHome.classList.toggle('active', screen === 'home');
-    if (ui.navAi) ui.navAi.classList.toggle('active', screen === 'ai');
-    if (ui.navOnline) ui.navOnline.classList.toggle('active', screen === 'online' || screen === 'room');
-    if (ui.navRanking) ui.navRanking.classList.toggle('active', screen === 'ranking');
+    if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
+    if (ui.navAi) ui.navAi.classList.toggle('active', visualScreen === 'ai');
+    if (ui.navOnline) ui.navOnline.classList.toggle('active', visualScreen === 'online' || screen === 'room');
+    if (ui.navCreateRoom) ui.navCreateRoom.classList.toggle('active', visualScreen === 'create-room');
+    if (ui.navFriendMatch) ui.navFriendMatch.classList.toggle('active', visualScreen === 'friend-match');
+    if (ui.navFriends) ui.navFriends.classList.toggle('active', visualScreen === 'friends');
+    if (ui.navRanking) ui.navRanking.classList.toggle('active', visualScreen === 'ranking');
 
     if (ui.sceneTitle) {
       const labels = {
         home: 'Arcade Home',
         ai: 'Ranked AI Match',
         online: 'Online Lobby',
+        'create-room': 'Create Online Room',
+        'friend-match': 'Friend Match Rooms',
+        friends: 'Online Friends',
         room: 'Room Waiting Room',
         game: isOnlineMode() ? 'Live Online Match' : 'Live Ranked Match',
         ranking: 'Ranking Hall'
       };
-      ui.sceneTitle.textContent = labels[screen] || 'Arcade Home';
+      ui.sceneTitle.textContent = labels[visualScreen] || 'Arcade Home';
     }
     if (ui.sceneSubtitle) {
       let sub = 'Choose a menu to move to a dedicated screen.';
       if (screen === 'room') sub = 'You are inside a room. Leave Room before switching to another session.';
       else if (screen === 'game') sub = 'Live board and in-match actions only.';
-      else if (screen === 'online') sub = 'Create or join a room from the online lobby.';
-      else if (screen === 'ai') sub = 'Start a ranked AI duel from a dedicated match screen.';
-      else if (screen === 'ranking') sub = 'Total, weekly, and previous weekly rankings.';
+      else if (visualScreen === 'online') sub = 'Open the online lobby overview.';
+      else if (visualScreen === 'create-room') sub = 'Create a room immediately from this dedicated screen.';
+      else if (visualScreen === 'friend-match') sub = 'See open friend rooms immediately from this dedicated screen.';
+      else if (visualScreen === 'friends') sub = 'See online friends immediately from this dedicated screen.';
+      else if (visualScreen === 'ai') sub = 'Start a ranked AI duel from a dedicated match screen.';
+      else if (visualScreen === 'ranking') sub = 'Total, weekly, and previous weekly rankings update automatically.';
       ui.sceneSubtitle.textContent = sub;
     }
     updateHomeScene();
@@ -603,7 +661,8 @@ function ordinalSuffix(n) {
       const season = ensureWeeklySeason();
       if (state.profile.weeklyKey !== season.key) { state.profile.weeklyKey = season.key; state.profile.weeklyWins = 0; state.profile.weeklyLosses = 0; state.profile.weeklyGames = 0; }
     }
-    state.leaderboardCache = getLocalLeaderboard().slice(0, 50);
+    state.allLeaderboardEntries = getLocalLeaderboard();
+    state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
   }
 
   function createShell() {
@@ -641,6 +700,9 @@ function ordinalSuffix(n) {
             <button class="fa-chip active" id="fa-nav-home">Home</button>
             <button class="fa-chip" id="fa-nav-ai">AI Match</button>
             <button class="fa-chip" id="fa-nav-online">Online</button>
+            <button class="fa-chip" id="fa-nav-create-room">Create Room</button>
+            <button class="fa-chip" id="fa-nav-friend-match">Friend Match</button>
+            <button class="fa-chip" id="fa-nav-friends">Friends</button>
             <button class="fa-chip" id="fa-nav-ranking">Ranking</button>
           </div>
           <div class="fa-scene-head">
@@ -1927,6 +1989,9 @@ function ordinalSuffix(n) {
     ui.navHome = root.querySelector('#fa-nav-home');
     ui.navAi = root.querySelector('#fa-nav-ai');
     ui.navOnline = root.querySelector('#fa-nav-online');
+    ui.navCreateRoom = root.querySelector('#fa-nav-create-room');
+    ui.navFriendMatch = root.querySelector('#fa-nav-friend-match');
+    ui.navFriends = root.querySelector('#fa-nav-friends');
     ui.navRanking = root.querySelector('#fa-nav-ranking');
     ui.sceneTitle = root.querySelector('#fa-scene-title');
     ui.sceneSubtitle = root.querySelector('#fa-scene-subtitle');
@@ -1950,6 +2015,21 @@ function ordinalSuffix(n) {
       state.online.panelMode = 'none';
       openStartScreen();
       navigateToScreen('online');
+    });
+    if (ui.navCreateRoom) ui.navCreateRoom.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('friend');
+      openCreateRoomComposer();
+    });
+    if (ui.navFriendMatch) ui.navFriendMatch.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('friend');
+      openJoinRoomList();
+    });
+    if (ui.navFriends) ui.navFriends.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
+      switchMatchMode('friend');
+      openFriendsPanel();
     });
     if (ui.navRanking) ui.navRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     const homeAi = root.querySelector('#fa-home-go-ai');
@@ -2358,6 +2438,7 @@ function ordinalSuffix(n) {
   function openFriendsPanel() {
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'friends';
+    openStartScreen();
     navigateToScreen(hasActiveRoomSession() ? 'room' : 'online', { bypassLock: true });
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
@@ -3224,6 +3305,7 @@ function ordinalSuffix(n) {
   function openCreateRoomComposer() {
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'create';
+    openStartScreen();
     navigateToScreen('online', { bypassLock: true });
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
@@ -3553,6 +3635,7 @@ function ordinalSuffix(n) {
 
   async function openJoinRoomList() {
     state.online.panelMode = 'join';
+    openStartScreen();
     navigateToScreen('online', { bypassLock: true });
     if (!window.firebase || !firebase.database) {
       ui.roomStatus.textContent = 'Firebase room sync is not available.';
@@ -4260,17 +4343,30 @@ function ordinalSuffix(n) {
   }
 
   async function renderLeaderboard(full = false) {
-    let totalBoard = [];
-    try { totalBoard = await state.remoteAdapter.fetchTop(50); } catch { totalBoard = getLocalLeaderboard().slice(0, 50); }
-    totalBoard = (Array.isArray(totalBoard) ? totalBoard : []).slice(0, 50);
+    let allBoard = Array.isArray(state.allLeaderboardEntries) && state.allLeaderboardEntries.length
+      ? state.allLeaderboardEntries.slice()
+      : [];
+    if (!allBoard.length) {
+      try { allBoard = await state.remoteAdapter.fetchAll(); } catch { allBoard = getLocalLeaderboard(); }
+    }
+    allBoard = Array.isArray(allBoard) ? sanitizeLeaderboardEntries(allBoard) : [];
+    const totalBoard = allBoard.slice(0, 50);
+    state.allLeaderboardEntries = allBoard;
     state.leaderboardCache = totalBoard;
+
     const weeklySeason = ensureWeeklySeason();
-    let weeklyBoard = totalBoard
-      .filter(p => (p.weeklyKey || weeklySeason.key) === weeklySeason.key && Number(p.weeklyWins || 0) > 0)
-      .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }))
+    let weeklyBoard = allBoard
+      .filter(p => String(p.weeklyKey || '') === String(weeklySeason.key) && Number(p.weeklyWins || 0) > 0)
+      .map(p => ({
+        ...p,
+        totalWins: Number(p.weeklyWins || 0),
+        totalLosses: Number(p.weeklyLosses || 0),
+        totalGames: Number(p.weeklyGames || 0)
+      }))
       .sort(compareLeaderboard)
-      .slice(0, 50);
-    if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
+      .slice(0, 7);
+
+    if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 7);
 
     const rankMark = i => {
       if (i === 0) return { cls: 'crown-top', label: '👑' };
@@ -4289,7 +4385,7 @@ function ordinalSuffix(n) {
         <div class="fa-rank-pos ${mark.cls}">${mark.label}</div>
         <div class="fa-rank-main">
           <div class="fa-rank-name">${escapeHtml(p.nickname)}</div>
-          <div class="fa-rank-sub">${p.totalGames || 0} games · ${p.totalWins || 0} wins · ${p.totalLosses || 0} losses${weekly ? ' · resets Sat 12:00 PM' : ' · best streak ' + (p.bestStreak || 0)}</div>
+          <div class="fa-rank-sub">${p.totalGames || 0} games · ${p.totalWins || 0} wins · ${p.totalLosses || 0} losses${weekly ? ' · resets Sat 12:00 PM · realtime' : ' · best streak ' + (p.bestStreak || 0)}</div>
         </div>
         <div class="fa-rank-badge">${escapeHtml(p.rank || '10k')}</div>
       </div>
@@ -4313,7 +4409,7 @@ function ordinalSuffix(n) {
       const previousBoard = getPreviousWeeklyLeaderboard().slice(0, 7);
       const activeBoard = state.leaderboardTab === 'weekly' ? weeklyBoard : state.leaderboardTab === 'previous' ? previousBoard : totalBoard;
       const weeklyHead = state.leaderboardTab === 'weekly'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)} · Top 7</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)} · Top 7 · Auto realtime update</div>`
         : state.leaderboardTab === 'previous'
         ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${prevSnap.meta?.start ? formatDateTimeEnglish(prevSnap.meta.start) : 'No data'} ~ ${prevSnap.meta?.end ? formatDateTimeEnglish(prevSnap.meta.end) : 'No data'} · Finalized snapshot</div>`
         : '';
@@ -5149,6 +5245,17 @@ function ordinalSuffix(n) {
     ensureViewportLock();
     restore();
     createShell();
+    try {
+      state.allLeaderboardEntries = await state.remoteAdapter.fetchAll();
+      state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
+      if (state.remoteAdapter.subscribeRealtime) {
+        state.remoteAdapter.subscribeRealtime(list => {
+          state.allLeaderboardEntries = Array.isArray(list) ? list : [];
+          state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
+          renderLeaderboard(!ui.leaderModal.classList.contains('hidden') || resolveAppScreen() === 'ranking');
+        });
+      }
+    } catch (e) {}
     syncUI();
     await renderLeaderboard();
     renderBoard();
