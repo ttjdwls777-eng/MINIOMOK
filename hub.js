@@ -41,7 +41,6 @@ function ordinalSuffix(n) {
   const STAR_BALANCE_DEFAULT = 10000;
   const STAR_WAGER_OPTIONS = [100, 1000, 10000];
   const STAR_WIN_RATE = 0.85;
-  const ROOM_SESSION_STORAGE_KEY = 'fa_omok_session_id_v1';
 
   const FirebaseLeaderboardAdapter = {
   mode: 'firebase-ready',
@@ -107,9 +106,59 @@ function ordinalSuffix(n) {
       );
     }
   }
+
 };
 
-  const state = {
+  const FirebaseSeasonLeaderboardAdapter = {
+    seasonPath(key) {
+      return 'leaderboards/omokWeekly/' + String(key || '');
+    },
+
+    async fetchSeasonTop(key, limit = 50) {
+      if (!key) return [];
+      try {
+        const snapshot = await firebase
+          .database()
+          .ref(this.seasonPath(key))
+          .once('value');
+
+        const data = snapshot.val();
+        if (!data) return [];
+
+        const list = Object.values(data)
+          .filter(Boolean)
+          .map(entry => ({
+            ...entry,
+            totalWins: Number(entry.weeklyWins || 0),
+            totalLosses: Number(entry.weeklyLosses || 0),
+            totalGames: Number(entry.weeklyGames || 0)
+          }));
+
+        return sanitizeLeaderboardEntries(list).slice(0, limit);
+      } catch (e) {
+        console.error('fetchSeasonTop firebase error:', e);
+        return [];
+      }
+    },
+
+    async saveSeasonEntry(key, entry) {
+      if (!key || !entry || !entry.id) return false;
+      try {
+        await firebase
+          .database()
+          .ref(this.seasonPath(key) + '/' + entry.id)
+          .set({
+            ...entry,
+            weeklyKey: key,
+            updatedAt: Date.now()
+          });
+        return true;
+      } catch (e) {
+        console.error('saveSeasonEntry firebase error:', e);
+        return false;
+      }
+    }
+
     profile: null,
     board: createBoard(),
     turn: HUMAN,
@@ -130,8 +179,6 @@ function ordinalSuffix(n) {
     started: false,
     paused: false,
     phase: 'intro',
-    scene: 'lobby',
-    sessionId: '',
     winningLine: [],
     remoteAdapter: FirebaseLeaderboardAdapter,
     leaderboardCache: [],
@@ -189,10 +236,105 @@ function ordinalSuffix(n) {
       challengePopupOpen: false,
       dismissedChallengeId: localStorage.getItem('fa_omok_dismissed_challenge_id') || ''
     },
-    nextStarter: HUMAN
+    nextStarter: HUMAN,
+    appScreen: 'home',
+    lastNonGameScreen: 'home',
+    leaderboardLiveHandles: {
+      total: null,
+      weekly: null,
+      weeklyKey: ''
+    }
   };
 
   const ui = {};
+
+  function hasActiveRoomSession() {
+    return !!(state.online && (state.online.roomId || state.online.roomCode) && state.online.status !== 'idle');
+  }
+
+  function isRoomNavigationLocked() {
+    return hasActiveRoomSession();
+  }
+
+  function resolveAppScreen() {
+    if (state.phase === 'playing' || state.phase === 'paused' || state.phase === 'countdown') return 'game';
+    if (hasActiveRoomSession()) return 'room';
+    return state.appScreen || 'home';
+  }
+
+  function navigateToScreen(screen, options = {}) {
+    const target = String(screen || 'home');
+    const bypassLock = !!options.bypassLock;
+    if (isRoomNavigationLocked() && !bypassLock && !['room','game','ranking'].includes(target)) {
+      state.appScreen = 'room';
+    } else if (target === 'ranking') {
+      state.appScreen = 'ranking';
+      state.lastNonGameScreen = 'ranking';
+    } else if (target === 'game') {
+      state.appScreen = 'game';
+    } else {
+      state.appScreen = target;
+      state.lastNonGameScreen = target;
+    }
+    syncAppScreen();
+  }
+
+  function syncAppScreen() {
+    const screen = resolveAppScreen();
+    const route = 'fa-route-' + screen;
+    document.body.classList.remove('fa-route-home','fa-route-ranking','fa-route-ai','fa-route-online','fa-route-room','fa-route-game');
+    document.body.classList.add(route);
+
+    if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
+    if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
+    if (ui.main) ui.main.classList.toggle('hidden', screen === 'home' || screen === 'ranking');
+
+    if (ui.navHome) ui.navHome.classList.toggle('active', screen === 'home');
+    if (ui.navAi) ui.navAi.classList.toggle('active', screen === 'ai');
+    if (ui.navOnline) ui.navOnline.classList.toggle('active', screen === 'online' || screen === 'room');
+    if (ui.navRanking) ui.navRanking.classList.toggle('active', screen === 'ranking');
+
+    if (ui.sceneTitle) {
+      const labels = {
+        home: 'Arcade Home',
+        ai: 'Ranked AI Match',
+        online: 'Online Lobby',
+        room: 'Room Waiting Room',
+        game: isOnlineMode() ? 'Live Online Match' : 'Live Ranked Match',
+        ranking: 'Ranking Hall'
+      };
+      ui.sceneTitle.textContent = labels[screen] || 'Arcade Home';
+    }
+    if (ui.sceneSubtitle) {
+      let sub = 'Choose a menu to move to a dedicated screen.';
+      if (screen === 'room') sub = 'You are inside a room. Leave Room before switching to another session.';
+      else if (screen === 'game') sub = 'Live board and in-match actions only.';
+      else if (screen === 'online') sub = 'Create or join a room from the online lobby.';
+      else if (screen === 'ai') sub = 'Start a ranked AI duel from a dedicated match screen.';
+      else if (screen === 'ranking') sub = 'Total, weekly, and previous weekly rankings.';
+      ui.sceneSubtitle.textContent = sub;
+    }
+    updateHomeScene();
+  }
+
+  function updateHomeScene() {
+    if (!ui.homeStats) return;
+    ui.homeStats.innerHTML = `
+      <div class="fa-scene-stat"><span>Wins</span><strong>${state.totalWins}</strong></div>
+      <div class="fa-scene-stat"><span>Losses</span><strong>${state.totalLosses}</strong></div>
+      <div class="fa-scene-stat"><span>Best Streak</span><strong>${state.bestStreak}</strong></div>
+      <div class="fa-scene-stat"><span>Stars</span><strong>★ ${formatNumber(getCurrentStars())}</strong></div>
+    `;
+    if (ui.homeProfileName) ui.homeProfileName.textContent = state.profile ? state.profile.nickname : 'Guest';
+    if (ui.homeProfileRank) ui.homeProfileRank.textContent = getCurrentRankFromState();
+    if (ui.homeRoomLock) {
+      ui.homeRoomLock.textContent = hasActiveRoomSession()
+        ? 'Room active · leave the room to move to another session.'
+        : 'No active room · you can freely move between screens.';
+    }
+  }
+
+
 
   function createBoard() {
     return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
@@ -204,18 +346,6 @@ function ordinalSuffix(n) {
 
   function uid() {
     return Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
-
-  function getSessionId() {
-    try {
-      const cached = sessionStorage.getItem(ROOM_SESSION_STORAGE_KEY);
-      if (cached) return cached;
-      const next = uid();
-      sessionStorage.setItem(ROOM_SESSION_STORAGE_KEY, next);
-      return next;
-    } catch {
-      return uid();
-    }
   }
 
   function normalizeStars(value) {
@@ -504,6 +634,59 @@ function ordinalSuffix(n) {
   }
 
 
+  async function fetchWeeklyLeaderboardLive(limit = 50) {
+    const season = ensureWeeklySeason();
+    const firebaseBoard = await FirebaseSeasonLeaderboardAdapter.fetchSeasonTop(season.key, limit);
+    if (firebaseBoard.length) return firebaseBoard;
+    return getWeeklyLeaderboard().slice(0, limit);
+  }
+
+  async function saveWeeklyLeaderboardLive(entry) {
+    const season = ensureWeeklySeason();
+    upsertWeeklyLeaderboard(entry);
+    await FirebaseSeasonLeaderboardAdapter.saveSeasonEntry(season.key, {
+      ...entry,
+      weeklyWins: Number(entry.weeklyWins || 0),
+      weeklyLosses: Number(entry.weeklyLosses || 0),
+      weeklyGames: Number(entry.weeklyGames || 0),
+      rank: entry.rank || getCurrentRankFromState()
+    });
+  }
+
+  function detachRealtimeLeaderboards() {
+    const live = state.leaderboardLiveHandles || {};
+    try { live.total && live.total.off && live.total.off(); } catch {}
+    try { live.weekly && live.weekly.off && live.weekly.off(); } catch {}
+    state.leaderboardLiveHandles = { total: null, weekly: null, weeklyKey: '' };
+  }
+
+  function attachRealtimeLeaderboards() {
+    if (!window.firebase || !firebase.database) return;
+    if (!state.leaderboardLiveHandles) {
+      state.leaderboardLiveHandles = { total: null, weekly: null, weeklyKey: '' };
+    }
+    const season = ensureWeeklySeason();
+
+    if (!state.leaderboardLiveHandles.total) {
+      const totalRef = firebase.database().ref('leaderboards/omok');
+      totalRef.on('value', async () => {
+        try { await renderLeaderboard(true); } catch (e) {}
+      });
+      state.leaderboardLiveHandles.total = totalRef;
+    }
+
+    if (state.leaderboardLiveHandles.weeklyKey !== season.key) {
+      try { state.leaderboardLiveHandles.weekly && state.leaderboardLiveHandles.weekly.off && state.leaderboardLiveHandles.weekly.off(); } catch {}
+      const weeklyRef = firebase.database().ref(FirebaseSeasonLeaderboardAdapter.seasonPath(season.key));
+      weeklyRef.on('value', async () => {
+        try { await renderLeaderboard(true); } catch (e) {}
+      });
+      state.leaderboardLiveHandles.weekly = weeklyRef;
+      state.leaderboardLiveHandles.weeklyKey = season.key;
+    }
+  }
+
+
   function restore() {
     ensureWeeklySeason();
     const saved = getSavedState();
@@ -556,7 +739,64 @@ function ordinalSuffix(n) {
           </div>
         </div>
 
+        <div class="fa-scene-nav-wrap">
+          <div class="fa-scene-nav">
+            <button class="fa-chip active" id="fa-nav-home">Home</button>
+            <button class="fa-chip" id="fa-nav-ai">AI Match</button>
+            <button class="fa-chip" id="fa-nav-online">Online</button>
+            <button class="fa-chip" id="fa-nav-ranking">Ranking</button>
+          </div>
+          <div class="fa-scene-head">
+            <div>
+              <div class="fa-scene-title" id="fa-scene-title">Arcade Home</div>
+              <div class="fa-scene-subtitle" id="fa-scene-subtitle">Choose a menu to move to a dedicated screen.</div>
+            </div>
+          </div>
+        </div>
+
         <div class="fa-top-wallet-row">
+          <div class="fa-home-scene hidden" id="fa-home-scene">
+            <div class="fa-home-hero">
+              <div class="fa-home-hero-copy">
+                <div class="fa-stage-eyebrow">MULTI SCREEN ARCADE</div>
+                <div class="fa-stage-title" style="margin-top:8px;">Real lobby, real room, real match flow</div>
+                <div class="fa-stage-text" style="margin-top:10px;">Move between Home, AI Match, Online Lobby, Room Waiting Room, Live Match, and Ranking Hall. When you create or join a room, the room is locked to that session until you press Leave Room.</div>
+                <div class="fa-stage-actions" style="justify-content:flex-start;">
+                  <button class="fa-btn primary" id="fa-home-go-ai">Start AI Match</button>
+                  <button class="fa-btn" id="fa-home-go-online">Open Online Lobby</button>
+                  <button class="fa-btn ghost" id="fa-home-go-ranking">Open Ranking Hall</button>
+                </div>
+              </div>
+              <div class="fa-home-hero-side">
+                <div class="fa-home-profile">
+                  <div class="fa-avatar self large" id="fa-home-avatar"></div>
+                  <div>
+                    <div class="fa-name" id="fa-home-profile-name">Guest</div>
+                    <div class="fa-rank" id="fa-home-profile-rank">1 Grade</div>
+                    <div class="fa-mini-note" id="fa-home-room-lock">No active room.</div>
+                  </div>
+                </div>
+                <div class="fa-home-stats" id="fa-home-stats"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fa-ranking-scene hidden" id="fa-ranking-scene">
+            <div class="fa-panel" style="padding:18px;">
+              <div class="fa-modal-head" style="padding:0 0 16px;border-bottom:1px solid rgba(255,255,255,.08);">
+                <div>
+                  <div class="fa-modal-title">Leaderboard</div>
+                  <div class="fa-modal-sub">A dedicated ranking screen, separate from match flow.</div>
+                </div>
+              </div>
+              <div class="fa-leader-tabs" style="padding:16px 0 0;">
+                <button class="fa-chip active" id="fa-ranking-tab-total">Total Ranking</button>
+                <button class="fa-chip" id="fa-ranking-tab-weekly">Weekly Ranking Top 7</button>
+                <button class="fa-chip" id="fa-ranking-tab-previous">Previous Week Ranking</button>
+              </div>
+              <div class="fa-modal-body" id="fa-ranking-screen-list" style="padding:16px 0 0;max-height:none;"></div>
+            </div>
+          </div>
           <div class="fa-panel wallet top-wallet-panel">
             <div class="fa-panel-title">Star Wallet</div>
             <div class="fa-panel-sub">Owned Stars</div>
@@ -897,6 +1137,48 @@ function ordinalSuffix(n) {
       .fa-top-wallet-row {
         max-width: 1440px; margin: 0 auto; padding: 0 22px 12px;
       }
+      .fa-scene-nav-wrap {
+        max-width: 1440px; margin: 0 auto; padding: 0 22px 14px;
+        position: relative; z-index: 1;
+      }
+      .fa-scene-nav {
+        display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;
+      }
+      .fa-scene-head {
+        display:flex; align-items:center; justify-content:space-between; gap:14px;
+        padding:14px 18px; border-radius:22px;
+        background: linear-gradient(180deg, rgba(97,63,31,.28), rgba(52,32,17,.22));
+        border:1px solid rgba(255,255,255,.08); box-shadow: var(--shadow);
+      }
+      .fa-scene-title { font-size: 22px; font-weight: 900; }
+      .fa-scene-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
+      .fa-home-scene, .fa-ranking-scene { position: relative; z-index:1; }
+      .fa-home-hero {
+        display:grid; grid-template-columns: minmax(0,1.2fr) minmax(320px,.8fr); gap:18px;
+      }
+      .fa-home-hero-copy, .fa-home-hero-side {
+        padding:22px; border-radius:26px; background: linear-gradient(180deg, rgba(97,63,31,.34), rgba(52,32,17,.28));
+        border:1px solid rgba(255,255,255,.08); box-shadow: var(--shadow);
+      }
+      .fa-home-profile { display:flex; gap:14px; align-items:center; margin-bottom:16px; }
+      .fa-home-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+      .fa-scene-stat { padding:16px; border-radius:18px; background: rgba(255,245,232,.05); border:1px solid rgba(255,237,206,.08); }
+      .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
+      .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
+      body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
+      body.fa-route-home #fa-home-scene { display:block !important; }
+      body.fa-route-ranking #fa-ranking-scene { display:block !important; }
+      body.fa-route-room .fa-right { display:none !important; }
+      body.fa-route-room .fa-bottom { display:none !important; }
+      body.fa-route-room #fa-board { display:none !important; }
+      body.fa-route-room .fa-board-playerbar { display:none !important; }
+      body.fa-route-room .fa-board-wrap { min-height: 560px; }
+      body.fa-route-room #fa-start-screen { display:grid !important; position:absolute; inset:0; }
+      body.fa-route-room .fa-stage-card.lobby { width:min(100%, 720px); }
+      body.fa-route-room #fa-pause-screen, body.fa-route-room #fa-overlay { display:none !important; }
+      @media (max-width: 900px) {
+        .fa-home-hero { grid-template-columns: 1fr; }
+      }
       .top-wallet-panel { padding: 16px 18px; }
       .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
       .fa-top-actions { display: flex; gap: 10px; }
@@ -1044,56 +1326,6 @@ function ordinalSuffix(n) {
         max-width: 1440px; margin: 0 auto; padding: 8px 22px 28px;
         display: grid; grid-template-columns: minmax(0, 1.15fr) 380px; gap: 22px;
       }
-      #fa-omok-app[data-scene="room"] .fa-right,
-      #fa-omok-app[data-scene="room"] .fa-bottom,
-      #fa-omok-app[data-scene="room"] .fa-status-row,
-      #fa-omok-app[data-scene="room"] #fa-board,
-      #fa-omok-app[data-scene="room"] #fa-open-leaderboard,
-      #fa-omok-app[data-scene="room"] #fa-pause-top-btn { display: none !important; }
-      #fa-omok-app[data-scene="room"] .fa-main { grid-template-columns: 1fr; }
-      #fa-omok-app[data-scene="room"] .fa-panel.hero { padding: 18px; }
-      #fa-omok-app[data-scene="room"] .fa-board-wrap {
-        min-height: 760px;
-        align-items: stretch;
-        padding: 18px;
-        background:
-          radial-gradient(circle at top, rgba(255,231,177,.10), transparent 34%),
-          linear-gradient(180deg, rgba(255,246,224,.10), rgba(255,246,224,.03)),
-          linear-gradient(135deg, rgba(95,59,29,.52), rgba(49,28,13,.70));
-      }
-      #fa-omok-app[data-scene="room"] #fa-start-screen {
-        position: relative;
-        inset: auto;
-        width: 100%;
-        background: transparent;
-        padding: 0;
-      }
-      #fa-omok-app[data-scene="room"] .fa-stage-card.lobby {
-        width: min(100%, 980px);
-        padding: 30px;
-        text-align: left;
-        border-radius: 30px;
-        background:
-          linear-gradient(180deg, rgba(83,52,25,.96), rgba(42,24,12,.98)),
-          radial-gradient(circle at top right, rgba(255,222,151,.10), transparent 40%);
-      }
-      #fa-omok-app[data-scene="room"] .fa-stage-actions,
-      #fa-omok-app[data-scene="room"] .fa-stage-actions.split { justify-content: flex-start; }
-      #fa-omok-app[data-scene="room"] .fa-room-presence,
-      #fa-omok-app[data-scene="room"] .fa-friend-panel {
-        display: block !important;
-        margin-top: 18px;
-      }
-      #fa-omok-app[data-scene="room"] .fa-mode-switch,
-      #fa-omok-app[data-scene="room"] .fa-start-profile,
-      #fa-omok-app[data-scene="room"] #fa-lobby-confirm-actions,
-      #fa-omok-app[data-scene="room"] #fa-mode-ai,
-      #fa-omok-app[data-scene="room"] #fa-mode-friend,
-      #fa-omok-app[data-scene="room"] #fa-mode-friends,
-      #fa-omok-app[data-scene="room"] #fa-mode-create-room,
-      #fa-omok-app[data-scene="room"] #fa-open-rooms-panel,
-      #fa-omok-app[data-scene="room"] #fa-friends-panel { display: none !important; }
-      #fa-omok-app[data-scene="room"] .fa-friend-panel { padding: 0; border: 0; background: transparent; }
       .fa-panel {
         background: linear-gradient(180deg, rgba(97,63,31,.34), rgba(52,32,17,.28));
         border: 1px solid var(--line);
@@ -1772,12 +2004,48 @@ function ordinalSuffix(n) {
     ui.roomGuestName = root.querySelector('#fa-room-guest-name');
     ui.roomHostAvatar = root.querySelector('#fa-room-host-avatar');
     ui.roomGuestAvatar = root.querySelector('#fa-room-guest-avatar');
+    ui.main = root.querySelector('.fa-main');
+    ui.homeScene = root.querySelector('#fa-home-scene');
+    ui.rankingScene = root.querySelector('#fa-ranking-scene');
+    ui.rankingSceneList = root.querySelector('#fa-ranking-screen-list');
+    ui.navHome = root.querySelector('#fa-nav-home');
+    ui.navAi = root.querySelector('#fa-nav-ai');
+    ui.navOnline = root.querySelector('#fa-nav-online');
+    ui.navRanking = root.querySelector('#fa-nav-ranking');
+    ui.sceneTitle = root.querySelector('#fa-scene-title');
+    ui.sceneSubtitle = root.querySelector('#fa-scene-subtitle');
+    ui.homeStats = root.querySelector('#fa-home-stats');
+    ui.homeProfileName = root.querySelector('#fa-home-profile-name');
+    ui.homeProfileRank = root.querySelector('#fa-home-profile-rank');
+    ui.homeRoomLock = root.querySelector('#fa-home-room-lock');
+    ui.homeAvatar = root.querySelector('#fa-home-avatar');
 
     root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
+    if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
+    if (ui.navAi) ui.navAi.addEventListener('click', () => { switchMatchMode('ai'); openStartScreen(); navigateToScreen('ai', { bypassLock: true }); });
+    if (ui.navOnline) ui.navOnline.addEventListener('click', () => {
+      if (isRoomNavigationLocked()) { navigateToScreen('room', { bypassLock: true }); return; }
+      switchMatchMode('friend');
+      openStartScreen();
+      navigateToScreen('online', { bypassLock: true });
+    });
+    if (ui.navRanking) ui.navRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
+    const homeAi = root.querySelector('#fa-home-go-ai');
+    const homeOnline = root.querySelector('#fa-home-go-online');
+    const homeRanking = root.querySelector('#fa-home-go-ranking');
+    if (homeAi) homeAi.addEventListener('click', () => { switchMatchMode('ai'); openStartScreen(); navigateToScreen('ai', { bypassLock: true }); });
+    if (homeOnline) homeOnline.addEventListener('click', () => { switchMatchMode('friend'); openStartScreen(); navigateToScreen('online', { bypassLock: true }); });
+    if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
     if (ui.leaderTabTotal) ui.leaderTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
     if (ui.leaderTabWeekly) ui.leaderTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
     if (ui.leaderTabPrevious) ui.leaderTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
+    const rankingTabTotal = root.querySelector('#fa-ranking-tab-total');
+    const rankingTabWeekly = root.querySelector('#fa-ranking-tab-weekly');
+    const rankingTabPrevious = root.querySelector('#fa-ranking-tab-previous');
+    if (rankingTabTotal) rankingTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
+    if (rankingTabWeekly) rankingTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
+    if (rankingTabPrevious) rankingTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
     root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
@@ -2155,13 +2423,9 @@ function ordinalSuffix(n) {
   }
 
   function openFriendsPanel() {
-    if (hasActiveRoom()) {
-      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before moving to Friends.';
-      openNoticePopup('Room Active', 'You are already inside a room. Leave the room first to open the Friends list.', 'Confirm');
-      return;
-    }
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'friends';
+    navigateToScreen(hasActiveRoomSession() ? 'room' : 'online', { bypassLock: true });
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
@@ -2709,6 +2973,7 @@ function ordinalSuffix(n) {
     state.nextStarter = HUMAN;
     state.started = true;
     state.phase = 'countdown';
+    state.appScreen = 'game';
     state.paused = false;
     renderLobbyStatus();
     updateAvatars();
@@ -2850,6 +3115,7 @@ function ordinalSuffix(n) {
     state.paused = false;
     state.started = true;
     state.phase = 'playing';
+    state.appScreen = 'game';
     closePauseScreen();
     closeOverlay();
     setCountdownVisible(false, '', false);
@@ -2868,6 +3134,7 @@ function ordinalSuffix(n) {
   function pauseGame(title, text) {
     state.paused = true;
     state.phase = 'paused';
+    state.appScreen = 'game';
     ui.pauseTitle.textContent = title;
     ui.pauseText.textContent = text;
     ui.pauseScreen.classList.remove('hidden');
@@ -2879,6 +3146,7 @@ function ordinalSuffix(n) {
     if (!state.started) return;
     state.paused = false;
     state.phase = 'playing';
+    state.appScreen = 'game';
     closePauseScreen();
     updateMobileMode();
     syncUI();
@@ -2886,11 +3154,6 @@ function ordinalSuffix(n) {
   }
 
   function backToLobby() {
-    if (hasActiveRoom()) {
-      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before returning to the lobby.';
-      openNoticePopup('Room Active', 'Leave the current room first. The room screen stays locked until you press Leave Room.', 'Confirm');
-      return;
-    }
     state.lobbyConfirmed = !!(state.profile && state.profile.nickname);
     state.paused = false;
     state.started = false;
@@ -2901,6 +3164,7 @@ function ordinalSuffix(n) {
     closeOverlay();
     exitMobileFullscreen();
     openStartScreen();
+    navigateToScreen(hasActiveRoomSession() ? 'room' : (isOnlineMode() ? 'online' : 'ai'), { bypassLock: true });
     renderLeaderboard();
     syncUI();
   }
@@ -2909,7 +3173,6 @@ function ordinalSuffix(n) {
     ui.startScreen.classList.remove('hidden');
     state.phase = 'intro';
     state.started = false;
-    if (hasActiveRoom()) state.scene = 'room';
     clearPendingMove();
     setCountdownVisible(false, '', false);
     state.lobbyConfirmed = !!(state.profile && state.profile.nickname);
@@ -2967,35 +3230,6 @@ function ordinalSuffix(n) {
     return state.matchMode === 'friend';
   }
 
-  function hasActiveRoom() {
-    return !!(state.online.roomId || state.online.roomCode);
-  }
-
-  function getDesiredScene() {
-    if (state.started || state.phase === 'playing' || state.phase === 'countdown' || state.phase === 'paused') return 'game';
-    if (isOnlineMode() && hasActiveRoom()) return 'room';
-    return 'lobby';
-  }
-
-  function applyScene() {
-    state.scene = getDesiredScene();
-    if (ui.root) ui.root.setAttribute('data-scene', state.scene);
-    document.body.setAttribute('data-fa-scene', state.scene);
-  }
-
-  function isSameRoomOwner(room) {
-    if (!room || !state.profile) return false;
-    const myId = String(state.profile.id || '');
-    const myName = String(state.profile.nickname || '').trim().toLowerCase();
-    const hostId = String(room.hostId || '');
-    const hostName = String(room.hostNickname || '').trim().toLowerCase();
-    return (!!myId && hostId === myId) || (!!myName && hostName && hostName === myName);
-  }
-
-  function normalizeRoomStateAfterLeave() {
-    return { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
-  }
-
   function normalizeRoomCode(value) {
     return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
   }
@@ -3035,31 +3269,29 @@ function ordinalSuffix(n) {
   }
 
   function switchMatchMode(mode) {
-    if (hasActiveRoom()) {
-      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before moving to another menu.';
-      openNoticePopup('Room Active', 'Leave the current room first. Once you exit the room, you can move to another menu.', 'Confirm');
+    if (isRoomNavigationLocked() && mode !== 'friend') {
+      navigateToScreen('room', { bypassLock: true });
       return;
     }
     state.matchMode = mode === 'friend' ? 'friend' : 'ai';
     if (state.matchMode === 'ai') {
       state.online.status = 'idle';
       state.online.panelMode = 'none';
+      if (!hasActiveRoomSession()) state.appScreen = 'ai';
     } else if (!(state.online.roomId || state.online.roomCode)) {
       state.online.panelMode = 'none';
+      state.appScreen = 'online';
     }
     setRoomListLocked(false);
+    state.appScreen = 'online';
     syncUI();
     renderLobbyStatus();
   }
 
   function openCreateRoomComposer() {
-    if (hasActiveRoom()) {
-      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before creating another one.';
-      openNoticePopup('Room Active', 'You already have an active room. Leave it first before creating another room.', 'Confirm');
-      return;
-    }
     if (!isOnlineMode()) switchMatchMode('friend');
     state.online.panelMode = 'create';
+    navigateToScreen('online', { bypassLock: true });
     if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
@@ -3107,7 +3339,7 @@ function ordinalSuffix(n) {
     try {
       if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
         stopOnlinePresence();
-        state.online = normalizeRoomStateAfterLeave();
+        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
         if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
         syncUI();
         return;
@@ -3166,7 +3398,7 @@ function ordinalSuffix(n) {
       console.log('leave room error ignored:', e);
     }
     stopOnlinePresence();
-        state.online = normalizeRoomStateAfterLeave();
+        state.online = { roomId: '', roomCode: '', roomTitle: '', role: '', mySide: HUMAN, opponentName: 'Friend', opponentRank: '1 Grade', status: 'idle', unsubscribe: null, lastCountdownAt: 0, lastFinishedAt: 0, hostReady: false, guestReady: false, turnExpiresAt: 0, presenceHandle: null, hostId: '', guestId: '', hostName: '', guestName: '', lastGuestSeenId: '', lastRoomPulseAt: 0, panelMode: 'none', lastGuestReadySeenAt: 0, starWager: STAR_WAGER_OPTIONS[0] };
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     setRoomListLocked(false);
     syncUI();
@@ -3267,6 +3499,7 @@ function ordinalSuffix(n) {
       state.started = false;
       state.phase = 'intro';
       openStartScreen();
+      navigateToScreen('room', { bypassLock: true });
     } else if (room.status === 'countdown') {
       stopTurnTimer();
       openStartScreen();
@@ -3361,9 +3594,12 @@ function ordinalSuffix(n) {
       const badge = locked
         ? `<div class="fa-room-item-badge locked">Private room · ★ ${formatNumber(stake)}</div>`
         : `<div class="fa-room-item-badge open">Open room · ★ ${formatNumber(stake)}</div>`;
-      const action = locked
-        ? `<button class="fa-btn ghost tiny" data-room-locked="${roomId}">Use Code</button>`
-        : `<button class="fa-btn tiny" data-room-id="${roomId}">Join</button>`;
+      const isMine = !!(state.profile && room.hostId === state.profile.id);
+      const action = isMine
+        ? `<button class="fa-btn ghost tiny" disabled>My Room</button>`
+        : locked
+          ? `<button class="fa-btn ghost tiny" data-room-locked="${roomId}">Use Code</button>`
+          : `<button class="fa-btn tiny" data-room-id="${roomId}">Join</button>`;
       return `<div class="fa-room-item"><div><div class="fa-room-item-title">${title}</div><div class="fa-room-item-meta">Host ${host}${locked ? ' · Private' : ' · Open'} · Stake ★ ${formatNumber(stake)}</div>${badge}</div>${action}</div>`;
     }).join('');
     ui.openRoomsList.querySelectorAll('[data-room-id]').forEach(btn => {
@@ -3383,12 +3619,8 @@ function ordinalSuffix(n) {
   }
 
   async function openJoinRoomList() {
-    if (hasActiveRoom()) {
-      if (ui.roomStatus) ui.roomStatus.textContent = 'Leave the current room before opening the room list.';
-      openNoticePopup('Room Active', 'You are already inside a room. Leave the room first to browse other rooms.', 'Confirm');
-      return;
-    }
     state.online.panelMode = 'join';
+    navigateToScreen('online', { bypassLock: true });
     if (!window.firebase || !firebase.database) {
       ui.roomStatus.textContent = 'Firebase room sync is not available.';
       return;
@@ -3490,7 +3722,6 @@ function ordinalSuffix(n) {
       createdAt: now,
       hostPingAt: now,
       guestPingAt: 0,
-      ownerSessionId: state.sessionId || '',
       updatedAt: now
     };
     await roomRef.set(payload);
@@ -3509,6 +3740,7 @@ function ordinalSuffix(n) {
     state.online.guestName = '';
     state.online.lastGuestSeenId = '';
     state.online.starWager = starWager;
+    state.appScreen = 'room';
     playRoomEventChime('create');
     if (ui.roomStatus) ui.roomStatus.textContent = accessCode ? `Private room created. Share the room title and code. Stake ★ ${formatNumber(starWager)}.` : `Open room created. Your friend can join from the room list. Stake ★ ${formatNumber(starWager)}.`;
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
@@ -3562,9 +3794,9 @@ function ordinalSuffix(n) {
       ui.roomStatus.textContent = 'Room not found.';
       return;
     }
-    if (isSameRoomOwner(room)) {
-      ui.roomStatus.textContent = 'You cannot join a room that you created yourself.';
-      openNoticePopup('Cannot Join Own Room', 'The same player cannot enter the room they created from another session. Leave that room first if you want to move elsewhere.', 'Confirm');
+    if (room.hostId && state.profile && room.hostId === state.profile.id && state.online.role !== 'host') {
+      ui.roomStatus.textContent = 'You cannot join your own room from another session. Leave that room first.';
+      openNoticePopup('Own Room Locked', 'You cannot enter a room you created from another session. Press Leave Room in the original room first.', 'Confirm');
       return;
     }
     if (room.accessCode && !roomIdOverride) {
@@ -3608,6 +3840,7 @@ function ordinalSuffix(n) {
     state.online.hostName = room.hostNickname || '';
     state.online.guestName = room.guestNickname || '';
     state.online.starWager = roomWager;
+    state.appScreen = 'room';
     if (state.online.role === 'guest') playRoomEventChime('join');
     attachOnlineRoom(roomId);
     publishMyProfile();
@@ -3616,6 +3849,7 @@ function ordinalSuffix(n) {
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     if (ui.roomStatus) ui.roomStatus.textContent = `Joined ${room.title || 'room'} · Stake ★ ${formatNumber(roomWager)} · Press Ready to enter the duel.`;
     openStartScreen();
+    navigateToScreen('room', { bypassLock: true });
     refreshFriendsPanel();
     syncUI();
   }
@@ -3623,6 +3857,7 @@ function ordinalSuffix(n) {
   async function startOnlineRoomMatch() {
     if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
       openStartScreen();
+      navigateToScreen('room', { bypassLock: true });
       state.started = false;
       state.phase = 'intro';
       syncUI();
@@ -3746,7 +3981,7 @@ function ordinalSuffix(n) {
     const summary = `Record ${state.totalWins}W · ${state.totalLosses}L · Best Streak ${state.bestStreak}`;
     if (isOnlineMode()) {
       if (!(state.online.roomId || state.online.roomCode)) ui.lobbyText.textContent = 'Create your room title, choose a star stake, or open the room list, then start your online friendly match.';
-      else if (state.online.status === 'waiting') ui.lobbyText.textContent = `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' (' + state.online.roomCode + ')' : ''} has its own room screen now. Only Leave Room unlocks the other menus. Stake ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}. ${state.online.roomCode ? 'Share the code and wait for your friend.' : 'Your friend can join from the room list.'}`;
+      else if (state.online.status === 'waiting') ui.lobbyText.textContent = `${state.online.roomTitle || 'Room'}${state.online.roomCode ? ' (' + state.online.roomCode + ')' : ''} is ready with ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}. ${state.online.roomCode ? 'Share the code and wait for your friend.' : 'Your friend can join from the room list.'}`;
       else if (state.online.status === 'ready') ui.lobbyText.textContent = state.online.role === 'host' ? `${state.online.guestReady ? `Guest ready. Accept to begin the duel for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Waiting for your friend to press Ready for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`}` : `${state.online.guestReady ? `Ready locked. Waiting for the host to start ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.` : `Press Ready to join the duel for ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`}`;
       else ui.lobbyText.textContent = `Online room ${state.online.roomTitle || (state.online.roomCode || 'Open Room')} synced · ★ ${formatNumber(state.online.starWager || STAR_WAGER_OPTIONS[0])}.`;
     } else {
@@ -3869,7 +4104,6 @@ function ordinalSuffix(n) {
     const panelMode = state.online.panelMode || 'none';
     const joinListOpen = inFriendMode && !hasRoom && panelMode === 'join';
     const createComposerOpen = inFriendMode && !hasRoom && panelMode === 'create';
-    const dedicatedRoomView = inFriendMode && hasRoom;
     const showEntryButtons = inFriendMode && !hasRoom && !joinListOpen && !createComposerOpen;
     if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !createComposerOpen);
     if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !createComposerOpen);
@@ -3883,19 +4117,17 @@ function ordinalSuffix(n) {
     if (ui.modeCreateRoom) ui.modeCreateRoom.classList.toggle('hidden', !(inFriendMode && !hasRoom));
     if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !joinListOpen);
     if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !(inFriendMode && hasRoom));
-    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', dedicatedRoomView);
+    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', inFriendMode && hasRoom);
     const friendsOpen = state.online.panelMode === 'friends';
     if (ui.friendPanel) {
       ui.friendPanel.classList.toggle('join-list-open', joinListOpen);
       ui.friendPanel.classList.toggle('create-room-open', createComposerOpen);
     }
     if (ui.roomPresence) ui.roomPresence.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || !inFriendMode || !hasRoom);
-    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || dedicatedRoomView);
-    if (ui.lobbyResult) ui.lobbyResult.classList.toggle('hidden', dedicatedRoomView ? false : !state.lastResult);
+    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', joinListOpen || createComposerOpen || friendsOpen || (inFriendMode && hasRoom));
   }
 
   function syncUI() {
-    applyScene();
     const rank = getCurrentRankFromState();
     if (state.profile) state.profile.rank = rank;
 
@@ -4021,11 +4253,12 @@ function ordinalSuffix(n) {
     updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
+    syncAppScreen();
   }
 
   function updateAvatars() {
     const avatar = state.profile ? (state.profile.avatar || getAvatarBySeed(state.profile.id)) : '🐻';
-    [ui.selfAvatar, ui.startAvatar, ui.sideAvatar].forEach(el => {
+    [ui.selfAvatar, ui.startAvatar, ui.sideAvatar, ui.homeAvatar].forEach(el => {
       if (!el) return;
       el.setAttribute('data-avatar', avatar);
     });
@@ -4035,6 +4268,7 @@ function ordinalSuffix(n) {
 
   async function syncProfileToLeaderboard() {
     if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
+    const season = ensureWeeklySeason();
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -4049,21 +4283,22 @@ function ordinalSuffix(n) {
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: ensureWeeklySeason().key,
+      weeklyKey: season.key,
       stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
-    upsertWeeklyLeaderboard(entry);
+    await saveWeeklyLeaderboardLive(entry);
     state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
   }
 
   async function openLeaderboard() {
     await renderLeaderboard(true);
-    ui.leaderModal.classList.remove('hidden');
+    navigateToScreen('ranking', { bypassLock: true });
   }
 
   function closeLeaderboard() {
     ui.leaderModal.classList.add('hidden');
+    navigateToScreen(hasActiveRoomSession() ? 'room' : (state.lastNonGameScreen || 'home'), { bypassLock: true });
   }
 
   function formatDateTimeEnglish(dateLike) {
@@ -4083,6 +4318,12 @@ function ordinalSuffix(n) {
     if (ui.leaderTabTotal) ui.leaderTabTotal.classList.toggle('active', state.leaderboardTab === 'total');
     if (ui.leaderTabWeekly) ui.leaderTabWeekly.classList.toggle('active', state.leaderboardTab === 'weekly');
     if (ui.leaderTabPrevious) ui.leaderTabPrevious.classList.toggle('active', state.leaderboardTab === 'previous');
+    const rankingTotal = document.getElementById('fa-ranking-tab-total');
+    const rankingWeekly = document.getElementById('fa-ranking-tab-weekly');
+    const rankingPrevious = document.getElementById('fa-ranking-tab-previous');
+    if (rankingTotal) rankingTotal.classList.toggle('active', state.leaderboardTab === 'total');
+    if (rankingWeekly) rankingWeekly.classList.toggle('active', state.leaderboardTab === 'weekly');
+    if (rankingPrevious) rankingPrevious.classList.toggle('active', state.leaderboardTab === 'previous');
     renderLeaderboard(true);
   }
 
@@ -4097,7 +4338,9 @@ function ordinalSuffix(n) {
       .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }))
       .sort(compareLeaderboard)
       .slice(0, 50);
-    if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
+    const firebaseWeeklyBoard = await fetchWeeklyLeaderboardLive(50);
+    if (firebaseWeeklyBoard.length) weeklyBoard = firebaseWeeklyBoard;
+    else if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
 
     const rankMark = i => {
       if (i === 0) return { cls: 'crown-top', label: '👑' };
@@ -4145,7 +4388,12 @@ function ordinalSuffix(n) {
         ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${prevSnap.meta?.start ? formatDateTimeEnglish(prevSnap.meta.start) : 'No data'} ~ ${prevSnap.meta?.end ? formatDateTimeEnglish(prevSnap.meta.end) : 'No data'} · Finalized snapshot</div>`
         : '';
       const displayLimit = state.leaderboardTab === 'weekly' || state.leaderboardTab === 'previous' ? 7 : 30;
-      ui.leaderList.innerHTML = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
+      const html = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
+      ui.leaderList.innerHTML = html;
+      if (ui.rankingSceneList) ui.rankingSceneList.innerHTML = html;
+    }
+    if (ui.rankingSceneList && !full) {
+      ui.rankingSceneList.innerHTML = ui.leaderPreview.innerHTML;
     }
   }
 
@@ -4969,10 +5217,10 @@ function ordinalSuffix(n) {
 
   async function boot() {
     ensureViewportLock();
-    state.sessionId = getSessionId();
     restore();
     createShell();
     syncUI();
+    attachRealtimeLeaderboards();
     await renderLeaderboard();
     renderBoard();
     if (state.profile) {
@@ -4986,6 +5234,8 @@ function ordinalSuffix(n) {
     } else {
       openStartScreen();
     }
+    state.appScreen = state.profile ? 'home' : 'home';
+    syncAppScreen();
     updateMobileMode();
   }
 
