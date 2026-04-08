@@ -1,5 +1,5 @@
 /* =============================================================================
- *  카카오 오목 · Premium Emerald Edition
+ *  FA 오목 · Premium Emerald Edition
  *  -----------------------------------------------------------------------------
  *  Single-file, self-mounting, vanilla JavaScript Gomoku game.
  *  - Works offline (localStorage persistence, no external dependencies)
@@ -933,7 +933,7 @@ function ordinalSuffix(n) {
       <div class="topbar">
         <div class="brand">
           <div class="brand-logo">五</div>
-          <div class="brand-name">카카오 오목<small>Premium Edition</small></div>
+          <div class="brand-name">FA 오목테스트<small>Premium Edition</small></div>
         </div>
         <div class="topbar-right">
           <span class="lvl-pill" id="hm-lvl">LV 1</span>
