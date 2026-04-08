@@ -1,4 +1,4 @@
-function ordinalSuffix(n) {
+unction ordinalSuffix(n) {
     const v = Math.abs(Number(n)) || 0;
     const mod100 = v % 100;
     if (mod100 >= 11 && mod100 <= 13) return 'th';
@@ -1523,8 +1523,11 @@ function ordinalSuffix(n) {
       .fa-top-stars {
         display:inline-flex; align-items:center; justify-content:center;
         min-height:44px; padding:0 16px; border-radius:16px;
-        background: linear-gradient(145deg, rgba(214,180,109,.98), rgba(126,98,43,.98));
-        color:#121316; font-weight:900; box-shadow: 0 10px 24px rgba(0,0,0,.18);
+        background: linear-gradient(180deg, rgba(82,53,24,.96), rgba(47,28,12,.96));
+        border:1px solid rgba(255,222,150,.24);
+        color:#f2cf73; font-weight:900; letter-spacing:.02em;
+        box-shadow: 0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
+        text-shadow: 0 1px 0 rgba(0,0,0,.18);
       }
       .fa-brand { display: flex; align-items: center; gap: 14px; }
             .fa-brand-badge {
@@ -2255,10 +2258,11 @@ function ordinalSuffix(n) {
         }
         .fa-board-playerbar-name{ font-size:10px; }
         .fa-board-playerbar-stars{ font-size:10px; }
-        html, body, #fa-omok-app, .fa-wrap { height: 100svh; overflow: hidden; }
-        .fa-wrap { display:flex; flex-direction:column; }
-        .fa-topbar, .fa-scene-nav-wrap, .fa-top-wallet-row { flex: 0 0 auto; }
-        .fa-home-scene, .fa-ranking-scene, .fa-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+        .fa-top-wallet-row { display:none !important; }
+        html, body, #fa-omok-app, .fa-wrap { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; }
+        .fa-wrap { display:block; }
+        .fa-topbar, .fa-scene-nav-wrap { flex: 0 0 auto; }
+        .fa-home-scene, .fa-ranking-scene, .fa-main { min-height: 0; overflow: visible; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
         body.fa-route-ai .fa-main,
         body.fa-route-create-room .fa-main,
         body.fa-route-friend-match .fa-main,
@@ -3417,11 +3421,14 @@ function ordinalSuffix(n) {
 
   function updateTurnTimerLabel() {
     if (!ui.turnTimer) return;
-    const visible = isOnlineMode() && state.phase === 'playing' && state.started && !state.gameOver;
+    const visible = state.phase === 'playing' && state.started && !state.gameOver;
     ui.turnTimer.classList.toggle('hidden', !visible);
     if (!visible) return;
     const secs = Math.max(0, Number(state.turnSecondsLeft || 0));
-    ui.turnTimer.textContent = `Turn ${secs}`;
+    const owner = isOnlineMode()
+      ? (state.turn === getMySide() ? 'My Turn' : 'Enemy Turn')
+      : (state.turn === HUMAN ? 'My Turn' : 'AI Turn');
+    ui.turnTimer.textContent = `${owner} ${secs}`;
     ui.turnTimer.classList.toggle('warning', secs <= 15 && secs > 5);
     ui.turnTimer.classList.toggle('danger', secs <= 5);
   }
@@ -3434,6 +3441,11 @@ function ordinalSuffix(n) {
     state.turnSecondsLeft = 60;
     state.turnLastAudioSecond = null;
     updateTurnTimerLabel();
+  }
+
+  function isTimedTurnLoserOnTimeout() {
+    if (isOnlineMode()) return state.turn;
+    return state.turn === HUMAN ? HUMAN : 0;
   }
 
   async function claimOnlineTimeoutLoss() {
@@ -3467,9 +3479,17 @@ function ordinalSuffix(n) {
 
   function startTurnTimer() {
     stopTurnTimer();
-    if (!isOnlineMode() || state.phase !== 'playing' || state.gameOver || !state.started) return;
+    if (state.phase !== 'playing' || state.gameOver || !state.started) return;
+    if (!isOnlineMode() && state.turn !== HUMAN) {
+      state.turnSecondsLeft = 60;
+      updateTurnTimerLabel();
+      return;
+    }
+    const localExpiresAt = Date.now() + TURN_LIMIT_MS;
     const tick = () => {
-      const expiresAt = Number(state.online.turnExpiresAt || 0);
+      const expiresAt = isOnlineMode()
+        ? Number(state.online.turnExpiresAt || 0)
+        : localExpiresAt;
       const secs = expiresAt ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : 60;
       state.turnSecondsLeft = secs;
       updateTurnTimerLabel();
@@ -3483,7 +3503,14 @@ function ordinalSuffix(n) {
       }
       if (secs <= 0) {
         stopTurnTimer();
-        claimOnlineTimeoutLoss();
+        if (isOnlineMode()) {
+          claimOnlineTimeoutLoss();
+        } else if (state.phase === 'playing' && state.started && !state.gameOver && state.turn === HUMAN) {
+          state.gameOver = true;
+          state.winner = AI;
+          state.winningLine = [];
+          finishGame(AI, [], false, 'clock');
+        }
       }
       if (ui.roomStatus && isOnlineMode() && state.online.status === 'playing') {
         const turnLabel = state.turn === getMySide() ? 'Your turn' : 'Friend turn';
@@ -3542,6 +3569,7 @@ function ordinalSuffix(n) {
     closeOverlay();
     setCountdownVisible(false, '', false);
     showPendingMoveAction(false);
+    startTurnTimer();
     updateMobileMode();
     syncUI();
     renderBoard();
@@ -4971,6 +4999,7 @@ function ordinalSuffix(n) {
     if (state.gameOver) return;
 
     state.turn = AI;
+    startTurnTimer();
     syncUI();
     state.pendingLock = true;
     setTimeout(aiTurn, 150 + Math.min(350, state.streak * 35));
@@ -5001,6 +5030,7 @@ function ordinalSuffix(n) {
       return;
     }
     state.turn = side === HUMAN ? AI : HUMAN;
+    startTurnTimer();
     syncUI();
   }
 
