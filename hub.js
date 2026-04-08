@@ -19,8 +19,6 @@ function ordinalSuffix(n) {
   const WEEKLY_RESET_META_KEY = 'fa_omok_weekly_reset_meta_v1';
   const WEEKLY_PREV_LEADERBOARD_KEY = 'fa_omok_weekly_prev_board_v1';
   const WEEKLY_PREV_META_KEY = 'fa_omok_weekly_prev_meta_v1';
-  const FIREBASE_WEEKLY_META_PATH = 'leaderboards/omokWeeklyMeta';
-  const FIREBASE_WEEKLY_BOARD_ROOT = 'leaderboards/omokWeekly';
   const FRIENDS_KEY = 'fa_omok_friends_v1';
   const BOARD_SIZE = 15;
   const CELL = 44;
@@ -228,8 +226,6 @@ function ordinalSuffix(n) {
       dismissedChallengeId: localStorage.getItem('fa_omok_dismissed_challenge_id') || ''
     },
     nextStarter: HUMAN,
-    sharedWeeklyLeaderboard: [],
-    sharedPreviousWeeklyLeaderboard: [],
     appScreen: 'home',
     lastNonGameScreen: 'home'
   };
@@ -266,7 +262,6 @@ function ordinalSuffix(n) {
     if (locked && !bypassLock) {
       state.appScreen = 'room';
       syncAppScreen();
-      scrollViewportToActiveScreen('room');
       return false;
     }
     if (target === 'ranking') {
@@ -279,7 +274,6 @@ function ordinalSuffix(n) {
       state.lastNonGameScreen = target;
     }
     syncAppScreen();
-    scrollViewportToActiveScreen(target);
     return true;
   }
 
@@ -292,11 +286,10 @@ function ordinalSuffix(n) {
       'fa-route-room','fa-route-game','fa-route-create-room','fa-route-friend-match','fa-route-friends'
     );
     document.body.classList.add(route);
-    document.body.classList.toggle('fa-needs-profile', !state.profile);
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
     if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
-    if (ui.main) ui.main.classList.toggle('hidden', screen === 'ranking' || (screen === 'home' && !!state.profile));
+    if (ui.main) ui.main.classList.toggle('hidden', screen === 'home' || screen === 'ranking');
 
     if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
     if (ui.navAi) ui.navAi.classList.toggle('active', visualScreen === 'ai');
@@ -310,7 +303,7 @@ function ordinalSuffix(n) {
       const labels = {
         home: 'Arcade Home',
         ai: 'Ranked AI Match',
-        online: 'Friend Match',
+        online: 'Online Lobby',
         'create-room': 'Create Online Room',
         'friend-match': 'Friend Match Rooms',
         friends: 'Online Friends',
@@ -324,7 +317,7 @@ function ordinalSuffix(n) {
       let sub = 'Choose a menu to move to a dedicated screen.';
       if (screen === 'room') sub = 'You are inside a room. Leave Room before switching to another session.';
       else if (screen === 'game') sub = 'Live board and in-match actions only.';
-      else if (visualScreen === 'online') sub = 'Open the friend match room list immediately.';
+      else if (visualScreen === 'online') sub = 'Open the online lobby overview.';
       else if (visualScreen === 'create-room') sub = 'Create a room immediately from this dedicated screen.';
       else if (visualScreen === 'friend-match') sub = 'See open friend rooms immediately from this dedicated screen.';
       else if (visualScreen === 'friends') sub = 'See online friends immediately from this dedicated screen.';
@@ -333,46 +326,6 @@ function ordinalSuffix(n) {
       ui.sceneSubtitle.textContent = sub;
     }
     updateHomeScene();
-  }
-
-  function scrollViewportToActiveScreen(screenHint = '') {
-    const screen = screenHint || resolveAppScreen();
-    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
-    const prefersSmooth = window.innerWidth <= 740;
-    const behavior = prefersSmooth ? 'smooth' : 'auto';
-    const target = visualScreen === 'home'
-      ? ui.homeScene
-      : visualScreen === 'ranking'
-        ? ui.rankingScene
-        : ui.main;
-    requestAnimationFrame(() => {
-      try {
-        window.scrollTo({ top: 0, behavior });
-      } catch {
-        window.scrollTo(0, 0);
-      }
-      if (target) {
-        try { target.scrollTop = 0; } catch {}
-        const nested = target.querySelectorAll ? target.querySelectorAll('.fa-modal-body, .fa-open-rooms-list, .fa-leader-scroll') : [];
-        nested.forEach(el => { try { el.scrollTop = 0; } catch {} });
-      }
-      requestAnimationFrame(() => {
-        if (!target || typeof target.scrollIntoView !== 'function') return;
-        try {
-          target.scrollIntoView({ block: 'start', behavior });
-        } catch {}
-      });
-    });
-  } catch {
-        window.scrollTo(0, 0);
-      }
-      requestAnimationFrame(() => {
-        if (!target || typeof target.scrollIntoView !== 'function') return;
-        try {
-          target.scrollIntoView({ block: 'start', behavior });
-        } catch {}
-      });
-    });
   }
 
   function updateHomeScene() {
@@ -646,85 +599,6 @@ function ordinalSuffix(n) {
     }
   }
 
-  async function syncFirebaseWeeklySeasonMeta(season = getWeeklyWindow()) {
-    if (!window.firebase || !firebase.database) return null;
-    try {
-      const ref = firebase.database().ref(FIREBASE_WEEKLY_META_PATH);
-      const snap = await ref.once('value');
-      const meta = snap.val() || {};
-      const current = meta.current || null;
-      if (!current || String(current.key || '') !== String(season.key)) {
-        const nextMeta = {
-          current: { key: season.key, start: season.start.getTime(), end: season.end.getTime(), updatedAt: Date.now() },
-          previous: current && current.key ? { key: current.key, start: current.start || 0, end: current.end || 0, updatedAt: Date.now() } : (meta.previous || null)
-        };
-        await ref.update(nextMeta);
-        return nextMeta;
-      }
-      return meta;
-    } catch (err) {
-      console.log('weekly meta sync ignored:', err);
-      return null;
-    }
-  }
-
-  async function fetchFirebaseWeeklyLeaderboardByKey(seasonKey, limit = 7) {
-    if (!window.firebase || !firebase.database || !seasonKey) return [];
-    try {
-      const snap = await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(seasonKey)).once('value');
-      const raw = snap.val() || {};
-      const list = Object.values(raw)
-        .filter(Boolean)
-        .map(v => ({
-          ...v,
-          totalWins: Number(v.weeklyWins || 0),
-          totalLosses: Number(v.weeklyLosses || 0),
-          totalGames: Number(v.weeklyGames || 0)
-        }));
-      return sanitizeLeaderboardEntries(list.filter(v => Number(v.totalWins || 0) > 0)).slice(0, limit);
-    } catch (err) {
-      console.log('weekly board fetch ignored:', err);
-      return [];
-    }
-  }
-
-  async function fetchFirebaseWeeklyLeaderboards(limit = 7) {
-    const season = getWeeklyWindow();
-    let meta = await syncFirebaseWeeklySeasonMeta(season);
-    if (!meta && window.firebase && firebase.database) {
-      try {
-        const snap = await firebase.database().ref(FIREBASE_WEEKLY_META_PATH).once('value');
-        meta = snap.val() || null;
-      } catch (err) {
-        console.log('weekly meta fetch ignored:', err);
-      }
-    }
-    const currentKey = String(meta?.current?.key || season.key);
-    const previousKey = String(meta?.previous?.key || '');
-    const weekly = await fetchFirebaseWeeklyLeaderboardByKey(currentKey, limit);
-    const previous = previousKey ? await fetchFirebaseWeeklyLeaderboardByKey(previousKey, limit) : [];
-    state.sharedWeeklyLeaderboard = weekly;
-    state.sharedPreviousWeeklyLeaderboard = previous;
-    return { weekly, previous, meta };
-  }
-
-  async function saveWeeklyEntryToFirebase(entry) {
-    if (!window.firebase || !firebase.database || !entry || !entry.id) return false;
-    try {
-      const season = getWeeklyWindow();
-      await syncFirebaseWeeklySeasonMeta(season);
-      await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(season.key) + '/' + entry.id).set({
-        ...entry,
-        weeklyKey: season.key,
-        updatedAt: Date.now()
-      });
-      return true;
-    } catch (err) {
-      console.log('weekly board save ignored:', err);
-      return false;
-    }
-  }
-
   function ensureWeeklySeason() {
     const season = getWeeklyWindow();
     let meta = null;
@@ -882,7 +756,7 @@ function ordinalSuffix(n) {
                 <button class="fa-chip" id="fa-ranking-tab-weekly">Weekly Ranking Top 7</button>
                 <button class="fa-chip" id="fa-ranking-tab-previous">Previous Week Ranking</button>
               </div>
-              <div class="fa-modal-body" id="fa-ranking-screen-list" style="padding:16px 0 0;max-height:none;overflow-y:auto;"></div>
+              <div class="fa-modal-body" id="fa-ranking-screen-list" style="padding:16px 0 0;max-height:none;"></div>
             </div>
           </div>
           <div class="fa-panel wallet top-wallet-panel">
@@ -1254,10 +1128,6 @@ function ordinalSuffix(n) {
       .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
       .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
       body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
-      body:not(.fa-route-home) .fa-top-wallet-row { display:none !important; }
-      #fa-nav-online, #fa-home-go-online { display:none !important; }
-      body.fa-needs-profile.fa-route-home .fa-main { display:grid !important; }
-      body.fa-needs-profile.fa-route-home .fa-home-scene { display:block !important; }
       body.fa-route-home #fa-home-scene { display:block !important; }
       body.fa-route-ranking #fa-ranking-scene { display:block !important; }
       body.fa-route-ai .fa-right,
@@ -1297,71 +1167,6 @@ function ordinalSuffix(n) {
       body.fa-route-friends #fa-start-screen,
       body.fa-route-room #fa-start-screen { display:grid !important; position:absolute; inset:0; }
       body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 640px); }
-      body.fa-route-ai .fa-board-wrap,
-      body.fa-route-online .fa-board-wrap,
-      body.fa-route-create-room .fa-board-wrap,
-      body.fa-route-friend-match .fa-board-wrap,
-      body.fa-route-friends .fa-board-wrap,
-      body.fa-route-room .fa-board-wrap {
-        padding: 0;
-        background: transparent;
-        box-shadow: none;
-        min-height: auto;
-      }
-      body.fa-route-ai #fa-start-screen,
-      body.fa-route-online #fa-start-screen,
-      body.fa-route-create-room #fa-start-screen,
-      body.fa-route-friend-match #fa-start-screen,
-      body.fa-route-friends #fa-start-screen,
-      body.fa-route-room #fa-start-screen {
-        position: relative;
-        inset: auto;
-        padding: 0;
-        background: transparent;
-        display: block !important;
-      }
-      body.fa-route-ai .fa-stage-card.lobby,
-      body.fa-route-online .fa-stage-card.lobby,
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby {
-        width: 100%;
-        max-width: 100%;
-        min-height: calc(100vh - 240px);
-        border-radius: 28px;
-        padding: 24px;
-      }
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby {
-        text-align: left;
-      }
-      body.fa-route-create-room .fa-stage-title,
-      body.fa-route-friend-match .fa-stage-title,
-      body.fa-route-friends .fa-stage-title,
-      body.fa-route-room .fa-stage-title {
-        font-size: 26px;
-      }
-      body.fa-route-create-room .fa-stage-actions,
-      body.fa-route-friend-match .fa-stage-actions,
-      body.fa-route-friends .fa-stage-actions,
-      body.fa-route-room .fa-stage-actions {
-        justify-content: flex-start;
-      }
-      body.fa-route-create-room .fa-lobby-text,
-      body.fa-route-friend-match .fa-lobby-text,
-      body.fa-route-friends .fa-lobby-text,
-      body.fa-route-room .fa-lobby-text {
-        max-width: 760px;
-      }
-      body.fa-route-create-room .fa-start-profile,
-      body.fa-route-friend-match .fa-start-profile,
-      body.fa-route-friends .fa-start-profile,
-      body.fa-route-room .fa-start-profile {
-        display: none !important;
-      }
       body.fa-route-online .fa-stage-card.lobby,
       body.fa-route-create-room .fa-stage-card.lobby,
       body.fa-route-friend-match .fa-stage-card.lobby,
@@ -2031,6 +1836,62 @@ function ordinalSuffix(n) {
         width: min(100vw - 20px, 100vh - 20px);
       }
 
+
+      .fa-top-wallet-row { display:block; }
+      body:not(.fa-route-home) .fa-top-wallet-row { display:none !important; }
+      #fa-nav-online { display:none !important; }
+      @media (max-width: 740px) {
+        html, body, #fa-omok-app, .fa-wrap {
+          min-height: 100%;
+          height: auto !important;
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+        }
+        .fa-wrap { display:block !important; }
+        .fa-topbar, .fa-scene-nav-wrap {
+          position: sticky;
+          top: 0;
+          z-index: 30;
+          backdrop-filter: blur(14px);
+          background: linear-gradient(180deg, rgba(49,29,14,.92), rgba(49,29,14,.72));
+        }
+        .fa-topbar { padding-bottom: 10px; }
+        .fa-scene-nav-wrap { padding-top: 8px; padding-bottom: 10px; }
+        .fa-top-wallet-row { padding-top: 10px; }
+        .fa-home-scene, .fa-ranking-scene, .fa-main {
+          min-height: auto !important;
+          overflow: visible !important;
+          padding-bottom: calc(26px + env(safe-area-inset-bottom));
+        }
+        .fa-main {
+          display: block !important;
+          padding-top: 8px;
+        }
+        .fa-left, .fa-right { width: 100% !important; }
+        .fa-panel.hero, .fa-ranking-scene .fa-panel, .fa-home-hero-copy, .fa-home-hero-side {
+          min-height: auto !important;
+        }
+        body.fa-route-ai .fa-stage-card.lobby,
+        body.fa-route-create-room .fa-stage-card.lobby,
+        body.fa-route-friend-match .fa-stage-card.lobby,
+        body.fa-route-friends .fa-stage-card.lobby,
+        body.fa-route-room .fa-stage-card.lobby {
+          min-height: auto !important;
+          padding-bottom: 28px !important;
+        }
+        #fa-ranking-screen-list, .fa-leader-scroll, .fa-modal-body {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+        .fa-open-rooms {
+          max-height: none !important;
+          overflow: visible !important;
+        }
+        .fa-open-rooms-list {
+          max-height: none !important;
+        }
+      }
+
       @media (max-width: 1120px) {
         .fa-main { grid-template-columns: 1fr; }
       }
@@ -2120,33 +1981,6 @@ function ordinalSuffix(n) {
         }
         .fa-board-playerbar-name{ font-size:10px; }
         .fa-board-playerbar-stars{ font-size:10px; }
-        html, body, #fa-omok-app { min-height: 100svh; height: auto; overflow-x: hidden; overflow-y: auto; }
-        .fa-wrap { min-height: 100svh; height: auto; display:flex; flex-direction:column; overflow: visible; }
-        .fa-topbar, .fa-scene-nav-wrap, .fa-top-wallet-row { flex: 0 0 auto; }
-        .fa-home-scene, .fa-ranking-scene, .fa-main {
-          flex: 1 1 auto;
-          min-height: 0;
-          overflow-x: hidden;
-          overflow-y: auto;
-          -webkit-overflow-scrolling: touch;
-          padding-bottom: calc(24px + env(safe-area-inset-bottom));
-        }
-        body.fa-route-ranking .fa-ranking-scene { overflow-y: auto; }
-        body.fa-route-ai .fa-stage-card.lobby,
-        body.fa-route-create-room .fa-stage-card.lobby,
-        body.fa-route-friend-match .fa-stage-card.lobby,
-        body.fa-route-friends .fa-stage-card.lobby,
-        body.fa-route-room .fa-stage-card.lobby {
-          min-height: auto;
-          padding-bottom: calc(28px + env(safe-area-inset-bottom));
-        }
-        body.fa-route-ai .fa-board-wrap,
-        body.fa-route-create-room .fa-board-wrap,
-        body.fa-route-friend-match .fa-board-wrap,
-        body.fa-route-friends .fa-board-wrap,
-        body.fa-route-room .fa-board-wrap {
-          min-height: auto;
-        }
       }
     `;
     document.head.appendChild(style);
@@ -2708,19 +2542,10 @@ function ordinalSuffix(n) {
 
   function openFriendsPanel() {
     if (!isOnlineMode()) switchMatchMode('friend');
-    state.started = false;
-    state.paused = false;
-    state.phase = 'intro';
     state.online.panelMode = 'friends';
-    closeOverlay();
-    closePauseScreen();
-    clearPendingMove();
     openStartScreen();
-    navigateToScreen(hasActiveRoomSession() ? 'room' : 'friends', { bypassLock: true });
-    if (ui.openRoomsPanel) {
-      ui.openRoomsPanel.classList.add('hidden');
-      ui.openRoomsPanel.dataset.open = '';
-    }
+    navigateToScreen(hasActiveRoomSession() ? 'room' : 'online', { bypassLock: true });
+    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
     refreshFriendsPanel();
@@ -3190,8 +3015,6 @@ function ordinalSuffix(n) {
   }
 
   async function confirmLobbyProfile() {
-    const hadProfileBefore = !!(state.profile && state.profile.nickname);
-    const previousNickname = state.profile?.nickname || '';
     const nickname = (ui.nickInput.value || '').trim();
     if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
       ui.nickNote.textContent = 'Use 2 to 18 letters or numbers.';
@@ -3253,14 +3076,6 @@ function ordinalSuffix(n) {
     updateFullscreenButtons();
     syncUI();
     if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
-    if (!hadProfileBefore || previousNickname !== nickname) {
-      try {
-        initAudio();
-        playRoomEventChime('create');
-        triggerHaptic('tap');
-      } catch (e) {}
-      openNoticePopup('Nickname Created', `${nickname} is ready. You can now enter matches.`, 'OK');
-    }
     return true;
   }
 
@@ -3594,19 +3409,10 @@ function ordinalSuffix(n) {
 
   function openCreateRoomComposer() {
     if (!isOnlineMode()) switchMatchMode('friend');
-    state.started = false;
-    state.paused = false;
-    state.phase = 'intro';
     state.online.panelMode = 'create';
-    closeOverlay();
-    closePauseScreen();
-    clearPendingMove();
     openStartScreen();
     navigateToScreen('create-room', { bypassLock: true });
-    if (ui.openRoomsPanel) {
-      ui.openRoomsPanel.classList.add('hidden');
-      ui.openRoomsPanel.dataset.open = '';
-    }
+    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
     if (ui.roomTitleInput) setTimeout(() => ui.roomTitleInput.focus(), 0);
@@ -3933,13 +3739,7 @@ function ordinalSuffix(n) {
   }
 
   async function openJoinRoomList() {
-    state.started = false;
-    state.paused = false;
-    state.phase = 'intro';
     state.online.panelMode = 'join';
-    closeOverlay();
-    closePauseScreen();
-    clearPendingMove();
     openStartScreen();
     navigateToScreen('friend-match', { bypassLock: true });
     if (!window.firebase || !firebase.database) {
@@ -4605,7 +4405,6 @@ function ordinalSuffix(n) {
 
   async function syncProfileToLeaderboard() {
     if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
-    const season = ensureWeeklySeason();
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -4620,14 +4419,12 @@ function ordinalSuffix(n) {
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: season.key,
+      weeklyKey: ensureWeeklySeason().key,
       stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
     upsertWeeklyLeaderboard(entry);
-    await saveWeeklyEntryToFirebase(entry);
     state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
-    await fetchFirebaseWeeklyLeaderboards(7);
   }
 
   async function openLeaderboard() {
@@ -4690,15 +4487,6 @@ function ordinalSuffix(n) {
       .sort(compareLeaderboard)
       .slice(0, 7);
 
-    let sharedWeeklyMeta = null;
-    try {
-      const sharedWeekly = await fetchFirebaseWeeklyLeaderboards(7);
-      sharedWeeklyMeta = sharedWeekly?.meta || null;
-      if (sharedWeekly?.weekly?.length) weeklyBoard = sharedWeekly.weekly.slice(0, 7);
-    } catch (err) {
-      console.log('shared weekly refresh ignored:', err);
-    }
-
     if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 7);
 
     const rankMark = i => {
@@ -4739,12 +4527,12 @@ function ordinalSuffix(n) {
     ui.leaderPreview.innerHTML = totalBoard.length ? totalBoard.slice(0,30).map((p,i)=>buildRow(p,i,false)).join('') : empty;
     if (full) {
       const prevSnap = getPreviousWeeklySnapshot();
-      const previousBoard = (state.sharedPreviousWeeklyLeaderboard && state.sharedPreviousWeeklyLeaderboard.length ? state.sharedPreviousWeeklyLeaderboard : getPreviousWeeklyLeaderboard()).slice(0, 7);
+      const previousBoard = getPreviousWeeklyLeaderboard().slice(0, 7);
       const activeBoard = state.leaderboardTab === 'weekly' ? weeklyBoard : state.leaderboardTab === 'previous' ? previousBoard : totalBoard;
       const weeklyHead = state.leaderboardTab === 'weekly'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.start || weeklySeason.start)} ~ ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.end || weeklySeason.end)} · Top 7 · Auto realtime update</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)} · Top 7 · Auto realtime update</div>`
         : state.leaderboardTab === 'previous'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) : 'No data'} ~ ${((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) : 'No data'} · Finalized snapshot</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${prevSnap.meta?.start ? formatDateTimeEnglish(prevSnap.meta.start) : 'No data'} ~ ${prevSnap.meta?.end ? formatDateTimeEnglish(prevSnap.meta.end) : 'No data'} · Finalized snapshot</div>`
         : '';
       const displayLimit = state.leaderboardTab === 'weekly' || state.leaderboardTab === 'previous' ? 7 : 30;
       const html = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
@@ -5581,7 +5369,6 @@ function ordinalSuffix(n) {
     try {
       state.allLeaderboardEntries = await state.remoteAdapter.fetchAll();
       state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
-      await fetchFirebaseWeeklyLeaderboards(7);
       if (state.remoteAdapter.subscribeRealtime) {
         state.remoteAdapter.subscribeRealtime(list => {
           state.allLeaderboardEntries = Array.isArray(list) ? list : [];
@@ -5602,11 +5389,9 @@ function ordinalSuffix(n) {
       ui.nickInput.value = state.profile.nickname || '';
       ui.nickNote.textContent = 'Update nickname before starting, or continue as is.';
     } else {
-      switchMatchMode('ai');
       openStartScreen();
-      ui.nickNote.textContent = 'Set your nickname first on the home screen to enter the arena.';
     }
-    state.appScreen = 'home';
+    state.appScreen = state.profile ? 'home' : 'home';
     syncAppScreen();
     updateMobileMode();
   }
