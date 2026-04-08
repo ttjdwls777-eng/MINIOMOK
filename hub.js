@@ -273,7 +273,6 @@ function ordinalSuffix(n) {
     if (target === 'ranking') {
       state.appScreen = 'ranking';
       state.lastNonGameScreen = 'ranking';
-      try { renderLeaderboard(true); } catch (e) {}
     } else if (target === 'game') {
       state.appScreen = 'game';
     } else {
@@ -904,11 +903,15 @@ function ordinalSuffix(n) {
             </div>
           </div>
           <div class="fa-top-actions">
-            <div class="fa-top-wallet-pill" id="fa-top-star-pill">
-              <span class="fa-star-icon mini" aria-hidden="true">★</span>
-              <span class="fa-top-wallet-pill-label">Stars</span>
-              <strong id="fa-top-stars">10,000</strong>
+            <div class="fa-top-starbox" id="fa-top-starbox" aria-label="Owned stars">
+              <span class="fa-top-star-icon" aria-hidden="true">★</span>
+              <div class="fa-top-star-meta">
+                <span class="fa-top-star-label">My Stars</span>
+                <strong id="fa-top-stars">10,000</strong>
+              </div>
             </div>
+            <button class="fa-btn ghost hidden" id="fa-open-leaderboard">Leaderboard</button>
+            <button class="fa-btn ghost hidden" id="fa-pause-top-btn">Pause</button>
           </div>
         </div>
 
@@ -1310,8 +1313,10 @@ function ordinalSuffix(n) {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
       }
       .fa-top-wallet-row {
-        max-width: 1440px; margin: 0 auto; padding: 0 22px 12px;
+        max-width: 1440px; margin: 0 auto; padding: 0 22px 12px; min-height: 0;
       }
+      .fa-ranking-scene { max-height: calc(100svh - 190px); overflow-y: auto; overflow-x: hidden; }
+      .fa-ranking-scene .fa-panel { min-height: 100%; }
       .fa-scene-nav-wrap {
         max-width: 1440px; margin: 0 auto; padding: 0 22px 14px;
         position: relative; z-index: 1;
@@ -1328,6 +1333,8 @@ function ordinalSuffix(n) {
       .fa-scene-title { font-size: 22px; font-weight: 900; }
       .fa-scene-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
       .fa-home-scene, .fa-ranking-scene { position: relative; z-index:1; }
+      .fa-top-wallet-row { display:none; }
+      body.fa-route-home .fa-top-wallet-row, body.fa-route-ranking .fa-top-wallet-row { display:block; }
       .fa-home-hero {
         display:grid; grid-template-columns: minmax(0,1.2fr) minmax(320px,.8fr); gap:18px;
       }
@@ -1495,19 +1502,22 @@ function ordinalSuffix(n) {
       .top-wallet-panel { padding: 16px 18px; }
       .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
       .fa-top-actions { display: flex; gap: 10px; align-items:center; }
-      .fa-top-wallet-pill {
-        display:flex; align-items:center; gap:10px;
-        padding:10px 14px; min-height:48px;
-        border-radius:16px;
+      .fa-top-starbox {
+        display:flex; align-items:center; gap:10px; padding:10px 14px;
+        border-radius:18px; min-width:132px;
         background: linear-gradient(180deg, rgba(255,246,222,.14), rgba(255,246,222,.06));
-        border: 1px solid rgba(255,227,160,.16);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 24px rgba(0,0,0,.14);
-        color:#fff7e1;
+        border:1px solid rgba(255,227,160,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
       }
-      .fa-top-wallet-pill-label {
-        font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:800;
+      .fa-top-star-icon {
+        display:inline-grid; place-items:center; width:28px; height:28px; border-radius:10px;
+        background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
+        color:#1f160a; font-size:16px; box-shadow: 0 8px 18px rgba(255,205,74,.22), inset 0 1px 1px rgba(255,255,255,.6);
       }
-      #fa-top-stars { font-size:18px; line-height:1; color:#fff8e8; }
+      .fa-top-star-meta { display:flex; flex-direction:column; min-width:0; }
+      .fa-top-star-label { font-size:11px; color: var(--muted); text-transform:uppercase; letter-spacing:.12em; }
+      #fa-top-stars { font-size:18px; color:#fff8e8; letter-spacing:.02em; }
+      .top-wallet-panel { display:none !important; }
+      body:not(.fa-route-home):not(.fa-route-ranking) .fa-top-wallet-row { display:none !important; }
       .fa-brand { display: flex; align-items: center; gap: 14px; }
             .fa-brand-badge {
         width: 52px; height: 52px; border-radius: 16px;
@@ -2239,14 +2249,19 @@ function ordinalSuffix(n) {
         .fa-board-playerbar-stars{ font-size:10px; }
         html, body, #fa-omok-app, .fa-wrap { height: 100svh; overflow: hidden; }
         .fa-wrap { display:flex; flex-direction:column; }
-        .fa-topbar, .fa-scene-nav-wrap, .fa-top-wallet-row { flex: 0 0 auto; }
-        .fa-home-scene, .fa-ranking-scene, .fa-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+        .fa-topbar, .fa-scene-nav-wrap { flex: 0 0 auto; }
+        .fa-top-wallet-row { flex: 1 1 auto; min-height: 0; overflow: hidden; display:none; }
+        body.fa-route-home .fa-top-wallet-row,
+        body.fa-route-ranking .fa-top-wallet-row { display:block !important; }
+        .fa-home-scene, .fa-ranking-scene { height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+        .fa-ranking-scene .fa-panel { min-height: 100%; display:flex; flex-direction:column; }
+        #fa-ranking-screen-list { overflow-y: auto; max-height: none !important; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+        .fa-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
         body.fa-route-ai .fa-main,
         body.fa-route-create-room .fa-main,
         body.fa-route-friend-match .fa-main,
         body.fa-route-friends .fa-main,
         body.fa-route-room .fa-main { padding-top: 0; }
-        .fa-main { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
       }
     `;
     document.head.appendChild(style);
@@ -2377,7 +2392,8 @@ function ordinalSuffix(n) {
     ui.homeRoomLock = root.querySelector('#fa-home-room-lock');
     ui.homeAvatar = root.querySelector('#fa-home-avatar');
 
-        if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
+    root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
+    if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
     if (ui.navAi) ui.navAi.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('ai');
@@ -2442,6 +2458,7 @@ function ordinalSuffix(n) {
     });
     root.querySelector('#fa-reset-score-btn').addEventListener('click', resetCareer);
     root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
+    root.querySelector('#fa-pause-top-btn').addEventListener('click', togglePause);
     root.querySelector('#fa-resume-btn').addEventListener('click', resumeGame);
     root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
     root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
