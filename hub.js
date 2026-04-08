@@ -63,6 +63,24 @@ function ordinalSuffix(n) {
     }
   },
 
+  // FIX: weekly ranking previously only searched the top-50 by total wins,
+  // so weekly-only winners outside that slice were invisible. This fetches
+  // the raw player pool so renderLeaderboard can filter/sort by weekly stats.
+  async fetchAll() {
+    try {
+      const snapshot = await firebase
+        .database()
+        .ref('leaderboards/omok')
+        .once('value');
+      const data = snapshot.val();
+      if (!data) return [];
+      return Object.values(data).filter(Boolean);
+    } catch (e) {
+      console.error('fetchAll firebase error:', e);
+      return getLocalLeaderboard();
+    }
+  },
+
   async saveEntry(entry) {
     try {
       if (!entry || !entry.id) return false;
@@ -1835,7 +1853,10 @@ function ordinalSuffix(n) {
     root.querySelector('#fa-btn-play-ai').addEventListener('click', () => {
       if (!state.profile) { goScreen('fa-screen-setup'); return; }
       switchMatchMode('ai');
-      openStartScreen();
+      // FIX: openStartScreen() routes AI mode back to 'fa-screen-home', so the
+      // button appeared to do nothing. Route directly to lobby (like friend mode).
+      goScreen('fa-screen-lobby');
+      renderLobbyStatus();
     });
     root.querySelector('#fa-btn-play-friend').addEventListener('click', () => {
       if (!state.profile) { goScreen('fa-screen-setup'); return; }
@@ -1936,7 +1957,18 @@ function ordinalSuffix(n) {
 
     window.addEventListener('keydown', onGlobalKey);
     window.addEventListener('resize', () => { updateMobileMode(); renderBoard(); });
-    document.addEventListener('fullscreenchange', updateFullscreenButtons);
+    // FIX: when user presses ESC (native browser exit), clear our internal
+    // fullscreen flag and drop the mobile-fullscreen body class so all UI resyncs.
+    const onFsChange = () => {
+      const realFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      if (!realFs) {
+        state.fullscreenRequested = false;
+        document.body.classList.remove('fa-mobile-fullscreen');
+      }
+      updateFullscreenButtons();
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
     document.addEventListener('pointerdown', initAudio, { once: true });
 
     /* ── PATCH openStartScreen & closeOverlay for screen router ── */
@@ -2916,6 +2948,13 @@ function ordinalSuffix(n) {
     const isFs = !!document.fullscreenElement || document.body.classList.contains('fa-mobile-fullscreen');
     ui.floatingFullscreen.classList.toggle('hidden', isFs);
     ui.floatingExitFullscreen.classList.toggle('hidden', !isFs);
+    // FIX: mobile-fullscreen hides .fa-game-header entirely (CSS), so the
+    // header-based exit button is invisible. The inner floating buttons are
+    // the only exit path. Toggle them here too so "Exit FS" actually appears.
+    const floatFsIn = root.querySelector('#fa-float-fullscreen-inner');
+    const floatExIn = root.querySelector('#fa-float-exit-inner');
+    if (floatFsIn) floatFsIn.classList.toggle('hidden', isFs);
+    if (floatExIn) floatExIn.classList.toggle('hidden', !isFs);
   }
 
   function handleNewMatch() {
@@ -4147,16 +4186,47 @@ function ordinalSuffix(n) {
   }
 
   async function renderLeaderboard(full = false) {
-    let totalBoard = [];
-    try { totalBoard = await state.remoteAdapter.fetchTop(50); } catch { totalBoard = getLocalLeaderboard().slice(0, 50); }
-    totalBoard = (Array.isArray(totalBoard) ? totalBoard : []).slice(0, 50);
+    // FIX: pull the raw full pool so weekly ranking isn't limited to the
+    // top-50-by-total-wins slice. Fall back gracefully to fetchTop/local.
+    let rawPool = [];
+    try {
+      if (state.remoteAdapter && typeof state.remoteAdapter.fetchAll === 'function') {
+        rawPool = await state.remoteAdapter.fetchAll();
+      } else {
+        rawPool = await state.remoteAdapter.fetchTop(500);
+      }
+    } catch { rawPool = getLocalLeaderboard(); }
+    rawPool = Array.isArray(rawPool) ? rawPool : [];
+
+    // Merge in the current player's latest profile so their weekly stats
+    // show up even before the next network round-trip settles.
+    if (state.profile && state.profile.id) {
+      const idx = rawPool.findIndex(p => p && p.id === state.profile.id);
+      const mine = {
+        id: state.profile.id,
+        nickname: state.profile.nickname,
+        rank: state.profile.rank,
+        totalWins: Number(state.profile.totalWins || 0),
+        totalLosses: Number(state.profile.totalLosses || 0),
+        totalGames: Number(state.profile.totalGames || 0),
+        bestStreak: Number(state.profile.bestStreak || 0),
+        weeklyKey: state.profile.weeklyKey,
+        weeklyWins: Number(state.profile.weeklyWins || 0),
+        weeklyLosses: Number(state.profile.weeklyLosses || 0),
+        weeklyGames: Number(state.profile.weeklyGames || 0),
+      };
+      if (idx >= 0) rawPool[idx] = { ...rawPool[idx], ...mine };
+      else rawPool.push(mine);
+    }
+
+    let totalBoard = sanitizeLeaderboardEntries(rawPool).slice(0, 50);
     state.leaderboardCache = totalBoard;
     const weeklySeason = ensureWeeklySeason();
-    let weeklyBoard = totalBoard
-      .filter(p => (p.weeklyKey || weeklySeason.key) === weeklySeason.key && Number(p.weeklyWins || 0) > 0)
-      .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }))
-      .sort(compareLeaderboard)
-      .slice(0, 50);
+    // FIX: filter/sort weekly from the RAW pool, not the total-sorted top 50.
+    let weeklyBoard = rawPool
+      .filter(p => p && (p.weeklyKey || weeklySeason.key) === weeklySeason.key && Number(p.weeklyWins || 0) > 0)
+      .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }));
+    weeklyBoard = sanitizeLeaderboardEntries(weeklyBoard).slice(0, 50);
     if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
 
     const rankMark = i => {
@@ -5002,13 +5072,14 @@ function ordinalSuffix(n) {
   }
 
   function requestMobileFullscreen(force = false) {
-    if (window.innerWidth > 740) return;
+    // FIX: removed `innerWidth > 740` early-return so desktop users can also use FS.
     if (!force && !state.fullscreenRequested) return;
-    document.body.classList.add('fa-mobile-fullscreen');
+    if (window.innerWidth <= 740) document.body.classList.add('fa-mobile-fullscreen');
     state.fullscreenRequested = !!force || state.fullscreenRequested;
     const elem = document.documentElement;
-    if (elem && elem.requestFullscreen) {
-      elem.requestFullscreen().catch(() => {});
+    const req = elem && (elem.requestFullscreen || elem.webkitRequestFullscreen || elem.msRequestFullscreen);
+    if (req) {
+      try { const p = req.call(elem); if (p && p.catch) p.catch(() => {}); } catch (e) {}
     }
     updateFullscreenButtons();
   }
@@ -5016,8 +5087,9 @@ function ordinalSuffix(n) {
   function exitMobileFullscreen() {
     document.body.classList.remove('fa-mobile-fullscreen');
     state.fullscreenRequested = false;
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {});
+    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if ((document.fullscreenElement || document.webkitFullscreenElement) && exitFn) {
+      try { const p = exitFn.call(document); if (p && p.catch) p.catch(() => {}); } catch (e) {}
     }
     updateFullscreenButtons();
   }
