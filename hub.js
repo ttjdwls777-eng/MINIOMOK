@@ -11,13 +11,6 @@ function ordinalSuffix(n) {
   }
 
 (() => {
-  try {
-    if (document.documentElement) document.documentElement.classList.add('fa-app-not-ready');
-    if (document.body) document.body.classList.add('fa-app-not-ready');
-    document.documentElement.classList.add('fa-preboot-hide');
-    if (document.body) document.body.classList.add('fa-preboot-hide');
-  } catch {}
-
   const APP_NAME = 'FA gomoku';
   const STORAGE_KEY = 'fa_omok_state_v2';
   const PROFILE_KEY = 'fa_omok_profile_v2';
@@ -239,8 +232,7 @@ function ordinalSuffix(n) {
     sharedWeeklyLeaderboard: [],
     sharedPreviousWeeklyLeaderboard: [],
     appScreen: 'home',
-    lastNonGameScreen: 'home',
-    lastButtonSoundAt: 0
+    lastNonGameScreen: 'home'
   };
 
   const ui = {};
@@ -304,11 +296,7 @@ function ordinalSuffix(n) {
     document.body.classList.toggle('fa-needs-profile', !state.profile);
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
-    if (ui.rankingScene) {
-      ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
-      if (screen === 'ranking') ui.rankingScene.style.display = 'block';
-      else ui.rankingScene.style.display = '';
-    }
+    if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
     if (ui.main) ui.main.classList.toggle('hidden', screen === 'ranking' || (screen === 'home' && !!state.profile));
 
     if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
@@ -375,24 +363,6 @@ function ordinalSuffix(n) {
         } catch {}
       });
     });
-  }
-
-  function attachTap(el, handler) {
-    if (!el || typeof handler !== 'function') return;
-    let touched = false;
-    el.addEventListener('click', e => {
-      if (touched) {
-        touched = false;
-        return;
-      }
-      handler(e);
-    });
-    el.addEventListener('touchend', e => {
-      touched = true;
-      e.preventDefault();
-      handler(e);
-      setTimeout(() => { touched = false; }, 60);
-    }, { passive: false });
   }
 
   function updateHomeScene() {
@@ -933,7 +903,15 @@ function ordinalSuffix(n) {
             </div>
           </div>
           <div class="fa-top-actions">
-            <div class="fa-top-stars" id="fa-top-stars">★ 10,000</div>
+            <div class="fa-top-starbox" id="fa-top-starbox" aria-label="Owned stars">
+              <span class="fa-top-star-icon" aria-hidden="true">★</span>
+              <div class="fa-top-star-meta">
+                <span class="fa-top-star-label">My Stars</span>
+                <strong id="fa-top-stars">10,000</strong>
+              </div>
+            </div>
+            <button class="fa-btn ghost hidden" id="fa-open-leaderboard">Leaderboard</button>
+            <button class="fa-btn ghost hidden" id="fa-pause-top-btn">Pause</button>
           </div>
         </div>
 
@@ -1150,9 +1128,6 @@ function ordinalSuffix(n) {
                       <button class="fa-btn primary big" id="fa-save-start">Game Start</button>
                       <button class="fa-btn ghost big mobile-only" id="fa-mobile-fullscreen-btn">Play Fullscreen</button>
                     </div>
-                    <div class="fa-stage-actions hidden" id="fa-lobby-nav-actions">
-                      <button class="fa-btn ghost big" id="fa-lobby-home-btn">Lobby Home</button>
-                    </div>
                   </div>
                 </div>
 
@@ -1285,31 +1260,6 @@ function ordinalSuffix(n) {
 
     const style = document.createElement('style');
     style.textContent = `
-      .fa-preboot-hide body,
-      body.fa-preboot-hide {
-        visibility: visible !important;
-        opacity: 1 !important;
-        background:
-          radial-gradient(circle at 18% 14%, rgba(255,224,165,.24), transparent 24%),
-          radial-gradient(circle at 84% 12%, rgba(188,130,58,.18), transparent 24%),
-          linear-gradient(135deg, #5c3b20 0%, #3f2816 42%, #26170d 100%) !important;
-      }
-      html.fa-app-not-ready body,
-      body.fa-app-not-ready {
-        overflow: hidden !important;
-      }
-      body.fa-app-not-ready .fa-topbar,
-      body.fa-app-not-ready .fa-scene-nav-wrap,
-      body.fa-app-not-ready .fa-top-wallet-row,
-      body.fa-app-not-ready .fa-main,
-      body.fa-app-not-ready .fa-home-scene,
-      body.fa-app-not-ready .fa-ranking-scene,
-      body.fa-app-not-ready .fa-modal,
-      body.fa-app-not-ready .fa-overlay,
-      body.fa-app-not-ready .fa-stage {
-        visibility: hidden !important;
-        opacity: 0 !important;
-      }
       :root {
         --glass: rgba(255,255,255,.06);
         --line: rgba(255,255,255,.1);
@@ -1363,8 +1313,10 @@ function ordinalSuffix(n) {
         display: flex; align-items: center; justify-content: space-between; gap: 12px;
       }
       .fa-top-wallet-row {
-        max-width: 1440px; margin: 0 auto; padding: 0 22px 12px;
+        max-width: 1440px; margin: 0 auto; padding: 0 22px 12px; min-height: 0;
       }
+      .fa-ranking-scene { max-height: calc(100svh - 190px); overflow-y: auto; overflow-x: hidden; }
+      .fa-ranking-scene .fa-panel { min-height: 100%; }
       .fa-scene-nav-wrap {
         max-width: 1440px; margin: 0 auto; padding: 0 22px 14px;
         position: relative; z-index: 1;
@@ -1381,8 +1333,8 @@ function ordinalSuffix(n) {
       .fa-scene-title { font-size: 22px; font-weight: 900; }
       .fa-scene-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
       .fa-home-scene, .fa-ranking-scene { position: relative; z-index:1; }
-      .fa-ranking-scene .fa-panel { max-height: none; }
-      .fa-ranking-scene .fa-modal-body { overflow:auto; -webkit-overflow-scrolling: touch; }
+      .fa-top-wallet-row { display:none; }
+      body.fa-route-home .fa-top-wallet-row, body.fa-route-ranking .fa-top-wallet-row { display:block; }
       .fa-home-hero {
         display:grid; grid-template-columns: minmax(0,1.2fr) minmax(320px,.8fr); gap:18px;
       }
@@ -1391,38 +1343,11 @@ function ordinalSuffix(n) {
         border:1px solid rgba(255,255,255,.08); box-shadow: var(--shadow);
       }
       .fa-home-profile { display:flex; gap:14px; align-items:center; margin-bottom:16px; }
-      .fa-home-hero-copy .fa-stage-actions { display:none !important; }
       .fa-home-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
       .fa-scene-stat { padding:16px; border-radius:18px; background: rgba(255,245,232,.05); border:1px solid rgba(255,237,206,.08); }
       .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
       .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
       body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
-      body.fa-route-game .fa-topbar,
-      body.fa-route-game .fa-scene-nav-wrap,
-      body.fa-route-game .fa-top-wallet-row,
-      body.fa-route-game .fa-home-scene,
-      body.fa-route-game .fa-ranking-scene,
-      body.fa-route-game .fa-right,
-      body.fa-route-game .fa-bottom { display:none !important; }
-      body.fa-route-game .fa-main {
-        display:block !important;
-        max-width:100% !important;
-        padding: 8px 10px calc(14px + env(safe-area-inset-bottom)) !important;
-      }
-      body.fa-route-game .fa-left { width:100%; }
-      body.fa-route-game .fa-panel.hero {
-        padding: 10px;
-        border-radius: 0;
-        border-left: 0;
-        border-right: 0;
-      }
-      body.fa-route-game .fa-board-wrap {
-        min-height: calc(100svh - 120px);
-        padding: 8px 0 0;
-      }
-      body.fa-route-game #fa-board {
-        width: min(100%, calc(100svh - 120px), 920px);
-      }
       body.fa-needs-profile.fa-route-home .fa-main { display:grid !important; }
       body.fa-needs-profile.fa-route-home .fa-home-scene { display:block !important; }
       body.fa-route-home #fa-home-scene { display:block !important; }
@@ -1577,15 +1502,22 @@ function ordinalSuffix(n) {
       .top-wallet-panel { padding: 16px 18px; }
       .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
       .fa-top-actions { display: flex; gap: 10px; align-items:center; }
-      .fa-top-stars {
-        display:inline-flex; align-items:center; justify-content:center;
-        min-height:44px; padding:0 16px; border-radius:16px;
-        background: linear-gradient(180deg, rgba(82,53,24,.96), rgba(47,28,12,.96));
-        border:1px solid rgba(255,222,150,.24);
-        color:#f2cf73; font-weight:900; letter-spacing:.02em;
-        box-shadow: 0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
-        text-shadow: 0 1px 0 rgba(0,0,0,.18);
+      .fa-top-starbox {
+        display:flex; align-items:center; gap:10px; padding:10px 14px;
+        border-radius:18px; min-width:132px;
+        background: linear-gradient(180deg, rgba(255,246,222,.14), rgba(255,246,222,.06));
+        border:1px solid rgba(255,227,160,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
       }
+      .fa-top-star-icon {
+        display:inline-grid; place-items:center; width:28px; height:28px; border-radius:10px;
+        background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
+        color:#1f160a; font-size:16px; box-shadow: 0 8px 18px rgba(255,205,74,.22), inset 0 1px 1px rgba(255,255,255,.6);
+      }
+      .fa-top-star-meta { display:flex; flex-direction:column; min-width:0; }
+      .fa-top-star-label { font-size:11px; color: var(--muted); text-transform:uppercase; letter-spacing:.12em; }
+      #fa-top-stars { font-size:18px; color:#fff8e8; letter-spacing:.02em; }
+      .top-wallet-panel { display:none !important; }
+      body:not(.fa-route-home):not(.fa-route-ranking) .fa-top-wallet-row { display:none !important; }
       .fa-brand { display: flex; align-items: center; gap: 14px; }
             .fa-brand-badge {
         width: 52px; height: 52px; border-radius: 16px;
@@ -1599,82 +1531,6 @@ function ordinalSuffix(n) {
       .fa-mode-switch { display:flex; gap:10px; margin: 14px 0 12px; }
       .fa-chip { border:1px solid rgba(255,238,205,.18); background: rgba(255,248,235,.06); color:#fff6e6; border-radius:999px; padding:10px 14px; font-weight:800; cursor:pointer; }
       .fa-chip.active { background: linear-gradient(180deg, rgba(228,193,126,.28), rgba(177,126,58,.24)); box-shadow: inset 0 0 0 1px rgba(255,228,167,.18); }
-
-      .fa-chip, .fa-btn, .fa-panel, .fa-stage-card, .fa-overlay-card, .fa-rank-row, .fa-room-item, .fa-friend-row {
-        transition: transform .22s ease, box-shadow .22s ease, background .22s ease, border-color .22s ease, opacity .22s ease;
-      }
-      .fa-chip:hover, .fa-btn:hover { box-shadow: 0 14px 30px rgba(0,0,0,.24), 0 0 0 1px rgba(255,228,167,.08) inset; }
-      .fa-chip.active {
-        color:#fff7e3;
-        box-shadow: 0 10px 24px rgba(213,178,108,.16), inset 0 0 0 1px rgba(255,228,167,.18);
-      }
-      .fa-scene-head, .fa-home-hero-copy, .fa-home-hero-side, .fa-panel, .fa-stage-card, .fa-overlay-card {
-        animation: faSoftRise .36s ease both;
-      }
-      .fa-rank-row, .fa-room-item, .fa-friend-row {
-        animation: faSoftRise .28s ease both;
-      }
-      .fa-btn.primary {
-        box-shadow: 0 16px 32px rgba(122,83,31,.28), inset 0 1px 0 rgba(255,255,255,.2);
-        animation: faGoldPulse 2.8s ease-in-out infinite;
-      }
-      .fa-btn.primary:active, .fa-btn:active, .fa-chip:active {
-        transform: translateY(1px) scale(.985);
-      }
-      .fa-top-stars, .fa-wallet-box strong, .fa-rank-badge {
-        text-shadow: 0 1px 0 rgba(0,0,0,.18), 0 0 18px rgba(255,213,123,.08);
-      }
-      .fa-stage-title, .fa-modal-title, .fa-panel-title {
-        text-shadow: 0 4px 18px rgba(0,0,0,.16);
-      }
-      .fa-overlay-card.result-pop {
-        animation: faResultPop .28s cubic-bezier(.2,.8,.2,1) both;
-      }
-      .fa-board-wrap::after {
-        content:'';
-        position:absolute; inset:0;
-        background: radial-gradient(circle at 50% 20%, rgba(255,255,255,.06), transparent 40%),
-                    radial-gradient(circle at 50% 100%, rgba(255,195,96,.05), transparent 45%);
-        pointer-events:none;
-      }
-      .fa-board-ripple {
-        position:absolute;
-        width:24px; height:24px;
-        margin-left:-12px; margin-top:-12px;
-        border-radius:999px;
-        border:2px solid rgba(255,230,174,.72);
-        box-shadow: 0 0 0 0 rgba(255,216,125,.32);
-        pointer-events:none;
-        z-index:5;
-        animation: faBoardRipple .52s ease-out forwards;
-      }
-      .fa-board-ripple.light {
-        border-color: rgba(255,255,255,.8);
-        box-shadow: 0 0 0 0 rgba(255,255,255,.24);
-      }
-      .fa-floating-game-actions .fa-btn {
-        border-color: rgba(255,234,190,.18);
-      }
-      .fa-scene-nav .fa-chip.active,
-      .fa-leader-tabs .fa-chip.active {
-        background: linear-gradient(180deg, rgba(238,202,130,.34), rgba(149,104,40,.22));
-      }
-      @keyframes faSoftRise {
-        from { opacity: 0; transform: translateY(10px) scale(.988); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-      }
-      @keyframes faResultPop {
-        from { opacity:0; transform: translateY(14px) scale(.94); }
-        to { opacity:1; transform: translateY(0) scale(1); }
-      }
-      @keyframes faGoldPulse {
-        0%,100% { box-shadow: 0 0 0 rgba(255,211,120,0), 0 10px 24px rgba(0,0,0,.18); }
-        50% { box-shadow: 0 0 22px rgba(255,211,120,.22), 0 14px 32px rgba(0,0,0,.22); }
-      }
-      @keyframes faBoardRipple {
-        0% { opacity:.9; transform: scale(.2); }
-        100% { opacity:0; transform: scale(3.2); }
-      }
       .fa-friend-panel { margin: 4px 0 14px; padding: 14px; border-radius: 18px; border:1px solid rgba(255,236,205,.12); background: rgba(255,246,229,.05); }
       .fa-friend-top { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
       .fa-room-code { font-weight:900; letter-spacing:.08em; color:#ffe7b4; }
@@ -2282,30 +2138,7 @@ function ordinalSuffix(n) {
         padding: 10px;
       }
       body.fa-mobile-fullscreen #fa-board {
-        width: min(100vw - 24px, 100svh - 236px);
-        margin-top: 18px;
-      }
-      body.fa-mobile-fullscreen .fa-board-wrap {
-        align-items: flex-start;
-        padding-top: max(150px, calc(env(safe-area-inset-top) + 118px));
-        padding-bottom: max(118px, calc(env(safe-area-inset-bottom) + 88px));
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar.enemy{
-        top:max(72px, calc(env(safe-area-inset-top) + 54px));
-        left:16px;
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar.self{
-        right:16px;
-        bottom:max(18px, calc(env(safe-area-inset-bottom) + 8px));
-      }
-      .fa-ranking-scene,
-      .fa-ranking-scene .fa-panel {
-        overflow: visible;
-      }
-      .fa-ranking-scene .fa-modal-body {
-        max-height: calc(100svh - 250px);
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
+        width: min(100vw - 20px, 100vh - 20px);
       }
 
       @media (max-width: 1120px) {
@@ -2329,92 +2162,6 @@ function ordinalSuffix(n) {
         min-height: calc(100svh - 210px);
       }
       @media (max-width: 740px) {
-        body.fa-route-home .fa-home-hero {
-          grid-template-columns: 1fr;
-          gap: 0;
-        }
-        body.fa-route-home .fa-home-hero-copy {
-          display: none !important;
-        }
-        body.fa-route-home .fa-home-scene {
-          padding-top: 2px;
-        }
-        body.fa-route-home .fa-home-hero-side {
-          width: 100%;
-          max-width: 100%;
-          padding: 22px;
-          border-radius: 28px;
-          background:
-            linear-gradient(180deg, rgba(110,70,34,.58), rgba(63,37,18,.52)),
-            repeating-linear-gradient(90deg, rgba(255,255,255,.016) 0px, rgba(255,255,255,.016) 2px, rgba(0,0,0,.028) 2px, rgba(0,0,0,.028) 6px);
-          border: 1px solid rgba(255,236,205,.10);
-          box-shadow: 0 22px 60px rgba(0,0,0,.28);
-        }
-        body.fa-route-home .fa-home-hero-side .fa-stage-actions,
-        body.fa-route-home .fa-home-hero-side .fa-home-hero-copy,
-        body.fa-route-home .fa-home-hero-side button {
-          display: none !important;
-        }
-        body.fa-route-home .fa-home-hero-side .fa-mini-note {
-          font-size: 12px;
-          line-height: 1.45;
-        }
-        body.fa-route-home .fa-home-profile {
-          align-items: flex-start;
-          margin-bottom: 14px;
-        }
-        body.fa-route-home .fa-home-profile .fa-avatar.large {
-          width: 70px;
-          height: 70px;
-          border-radius: 18px;
-          flex: 0 0 auto;
-        }
-        body.fa-route-home .fa-home-profile .fa-name {
-          font-size: 17px;
-          font-weight: 900;
-        }
-        body.fa-route-home .fa-home-profile .fa-rank {
-          font-size: 13px;
-          color: #f1d598;
-        }
-        body.fa-route-home .fa-home-profile .fa-mini-note {
-          margin-top: 6px;
-          line-height: 1.45;
-        }
-        body.fa-route-home .fa-home-stats {
-          grid-template-columns: 1fr 1fr;
-          gap: 12px;
-        }
-        body.fa-route-home .fa-home-stats {
-          margin-top: 4px;
-        }
-        body.fa-route-home .fa-home-room-lock {
-          display: block;
-          min-height: 38px;
-        }
-        body.fa-route-home .fa-scene-head {
-          padding: 12px 14px;
-        }
-        body.fa-route-home .fa-scene-title {
-          font-size: 20px;
-        }
-        body.fa-route-home .fa-scene-subtitle {
-          font-size: 12px;
-        }
-        body.fa-route-home .fa-scene-stat {
-          min-height: 84px;
-          padding: 16px 16px 14px;
-          border-radius: 18px;
-          background: rgba(255,245,232,.045);
-          border: 1px solid rgba(255,237,206,.09);
-        }
-        body.fa-route-home .fa-scene-stat strong {
-          margin-top: 10px;
-          font-size: 20px;
-        }
-        body.fa-route-home .fa-scene-stat:last-child strong {
-          color: #ffe19a;
-        }
         .fa-brand-area { width:auto; justify-content:flex-start; }
         .fa-top-wallet-row { padding: 0 14px 12px; }
         .fa-profile-main-meta { flex-direction:column; align-items:flex-start; }
@@ -2438,16 +2185,6 @@ function ordinalSuffix(n) {
         .fa-actions { width: 100%; }
         .fa-actions .fa-btn { flex: 1; }
         .fa-brand-title { font-size: 18px; }
-        .fa-scene-nav .fa-chip,
-        .fa-leader-tabs .fa-chip,
-        #fa-nav-ranking {
-          touch-action: manipulation;
-        }
-        .fa-ranking-scene .fa-modal-body {
-          max-height: calc(100svh - 214px);
-          overflow-y: auto !important;
-          -webkit-overflow-scrolling: touch;
-        }
         .fa-modal { padding: 14px; }
         .fa-modal-head { padding: 14px; }
         .fa-modal-body { padding: 14px; }
@@ -2510,26 +2247,21 @@ function ordinalSuffix(n) {
         }
         .fa-board-playerbar-name{ font-size:10px; }
         .fa-board-playerbar-stars{ font-size:10px; }
-        .fa-top-wallet-row { display:none !important; }
-        html, body, #fa-omok-app, .fa-wrap { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; }
-        .fa-wrap { display:block; }
+        html, body, #fa-omok-app, .fa-wrap { height: 100svh; overflow: hidden; }
+        .fa-wrap { display:flex; flex-direction:column; }
         .fa-topbar, .fa-scene-nav-wrap { flex: 0 0 auto; }
-        .fa-home-scene, .fa-ranking-scene, .fa-main { min-height: 0; overflow: visible; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+        .fa-top-wallet-row { flex: 1 1 auto; min-height: 0; overflow: hidden; display:none; }
+        body.fa-route-home .fa-top-wallet-row,
+        body.fa-route-ranking .fa-top-wallet-row { display:block !important; }
+        .fa-home-scene, .fa-ranking-scene { height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+        .fa-ranking-scene .fa-panel { min-height: 100%; display:flex; flex-direction:column; }
+        #fa-ranking-screen-list { overflow-y: auto; max-height: none !important; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+        .fa-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
         body.fa-route-ai .fa-main,
         body.fa-route-create-room .fa-main,
         body.fa-route-friend-match .fa-main,
         body.fa-route-friends .fa-main,
         body.fa-route-room .fa-main { padding-top: 0; }
-        .fa-main { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
-        body.fa-route-game .fa-topbar,
-        body.fa-route-game .fa-scene-nav-wrap,
-        body.fa-route-game .fa-top-wallet-row { display:none !important; }
-        body.fa-route-game .fa-wrap { min-height: 100svh; }
-        body.fa-route-game .fa-main { padding: 0 0 calc(8px + env(safe-area-inset-bottom)) !important; }
-        body.fa-route-game .fa-panel.hero { border-radius: 0; }
-        body.fa-route-game .fa-status-row { margin-bottom: 8px; }
-        body.fa-route-game .fa-board-wrap { min-height: calc(100svh - 96px); border-radius: 0; }
-        body.fa-route-game #fa-board { width: min(100vw - 10px, 100svh - 96px); }
       }
     `;
     document.head.appendChild(style);
@@ -2570,8 +2302,8 @@ function ordinalSuffix(n) {
     ui.sideName = root.querySelector('#fa-side-name');
     ui.connectionNote = root.querySelector('#fa-connection-note');
     ui.currentStars = root.querySelector('#fa-current-stars');
-    ui.currentStakeNote = root.querySelector('#fa-current-stake-note');
     ui.topStars = root.querySelector('#fa-top-stars');
+    ui.currentStakeNote = root.querySelector('#fa-current-stake-note');
     ui.roomStakePills = Array.from(root.querySelectorAll('.fa-stake-pill'));
     ui.leaderPreview = root.querySelector('#fa-leader-preview');
     ui.leaderModal = root.querySelector('#fa-leaderboard-modal');
@@ -2594,8 +2326,6 @@ function ordinalSuffix(n) {
     ui.lobbyResultText = root.querySelector('#fa-lobby-result-text');
     ui.lobbyConfirmActions = root.querySelector('#fa-lobby-confirm-actions');
     ui.lobbyStartActions = root.querySelector('#fa-lobby-start-actions');
-    ui.lobbyNavActions = root.querySelector('#fa-lobby-nav-actions');
-    ui.lobbyHomeBtn = root.querySelector('#fa-lobby-home-btn');
     ui.confirmProfileBtn = root.querySelector('#fa-confirm-profile-btn');
     ui.saveStart = root.querySelector('#fa-save-start');
     ui.floatingGameActions = root.querySelector('#fa-floating-game-actions');
@@ -2662,40 +2392,30 @@ function ordinalSuffix(n) {
     ui.homeRoomLock = root.querySelector('#fa-home-room-lock');
     ui.homeAvatar = root.querySelector('#fa-home-avatar');
 
-    attachTap(ui.navHome, () => navigateToScreen('home'));
-    attachTap(ui.navAi, () => {
+    root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
+    if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
+    if (ui.navAi) ui.navAi.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('ai');
       openStartScreen();
       navigateToScreen('ai');
     });
-    attachTap(ui.navCreateRoom, () => {
+    if (ui.navCreateRoom) ui.navCreateRoom.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
       openCreateRoomComposer();
     });
-    attachTap(ui.navFriendMatch, () => {
+    if (ui.navFriendMatch) ui.navFriendMatch.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
       openJoinRoomList();
     });
-    attachTap(ui.navFriends, () => {
+    if (ui.navFriends) ui.navFriends.addEventListener('click', () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
       openFriendsPanel();
     });
-    attachTap(ui.navRanking, async () => {
-      navigateToScreen('ranking', { bypassLock: true });
-      try {
-        if (ui.rankingScene) ui.rankingScene.classList.remove('hidden');
-        if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
-        window.scrollTo(0, 0);
-      } catch {}
-      await renderLeaderboard(true);
-      try {
-        if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
-      } catch {}
-    });
+    if (ui.navRanking) ui.navRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     const homeAi = root.querySelector('#fa-home-go-ai');
     const homeOnline = root.querySelector('#fa-home-go-online');
     const homeRanking = root.querySelector('#fa-home-go-ranking');
@@ -2710,35 +2430,18 @@ function ordinalSuffix(n) {
       switchMatchMode('friend');
       openJoinRoomList();
     });
-    if (homeRanking) homeRanking.addEventListener('click', async () => {
-      navigateToScreen('ranking', { bypassLock: true });
-      await renderLeaderboard(true);
-      try {
-        if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
-      } catch {}
-    });
+    if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
-    attachTap(ui.leaderTabTotal, () => switchLeaderboardTab('total'));
-    attachTap(ui.leaderTabWeekly, () => switchLeaderboardTab('weekly'));
-    attachTap(ui.leaderTabPrevious, () => switchLeaderboardTab('previous'));
+    if (ui.leaderTabTotal) ui.leaderTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
+    if (ui.leaderTabWeekly) ui.leaderTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
+    if (ui.leaderTabPrevious) ui.leaderTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
     const rankingTabTotal = root.querySelector('#fa-ranking-tab-total');
     const rankingTabWeekly = root.querySelector('#fa-ranking-tab-weekly');
     const rankingTabPrevious = root.querySelector('#fa-ranking-tab-previous');
-    attachTap(rankingTabTotal, () => switchLeaderboardTab('total'));
-    attachTap(rankingTabWeekly, () => switchLeaderboardTab('weekly'));
-    attachTap(rankingTabPrevious, () => switchLeaderboardTab('previous'));
-    if (ui.navRanking) {
-      ui.navRanking.addEventListener('touchstart', async (e) => {
-        e.preventDefault();
-        navigateToScreen('ranking', { bypassLock: true });
-        await renderLeaderboard(true);
-        try {
-          if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
-        } catch {}
-      }, { passive: false });
-    }
+    if (rankingTabTotal) rankingTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
+    if (rankingTabWeekly) rankingTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
+    if (rankingTabPrevious) rankingTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
-    if (ui.lobbyHomeBtn) ui.lobbyHomeBtn.addEventListener('click', () => navigateToScreen('home', { bypassLock: true }));
     root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
     ui.overlayConfirmBtn = root.querySelector('#fa-overlay-confirm-btn');
@@ -2755,6 +2458,7 @@ function ordinalSuffix(n) {
     });
     root.querySelector('#fa-reset-score-btn').addEventListener('click', resetCareer);
     root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
+    root.querySelector('#fa-pause-top-btn').addEventListener('click', togglePause);
     root.querySelector('#fa-resume-btn').addEventListener('click', resumeGame);
     root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
     root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
@@ -2762,7 +2466,7 @@ function ordinalSuffix(n) {
     root.querySelector('#fa-floating-fullscreen').addEventListener('click', () => requestMobileFullscreen(true));
     root.querySelector('#fa-floating-exit-fullscreen').addEventListener('click', exitMobileFullscreen);
     const floatingSurrenderBtn = root.querySelector('#fa-floating-surrender');
-    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderCurrentMatch);
+    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderOnlineMatch);
     ui.placeBtn.addEventListener('click', confirmPendingMove);
     ui.modeAi.addEventListener('click', () => switchMatchMode('ai'));
     ui.modeFriend.addEventListener('click', () => switchMatchMode('friend'));
@@ -2775,7 +2479,7 @@ function ordinalSuffix(n) {
     if (ui.addFriendBtn) ui.addFriendBtn.addEventListener('click', addFriendByNickname);
     if (ui.refreshFriendsBtn) ui.refreshFriendsBtn.addEventListener('click', refreshFriendsPanel);
     const surrenderBtn = root.querySelector('#fa-surrender-btn');
-    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderCurrentMatch);
+    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderOnlineMatch);
 
     ui.board.addEventListener('click', onBoardClick);
     ui.board.addEventListener('dblclick', e => e.preventDefault());
@@ -2803,23 +2507,26 @@ function ordinalSuffix(n) {
       if (e.target === ui.confirmModal) closeConfirm();
     });
 
-    const delegatedButtonSound = e => {
-      if (e && e.type === 'keydown' && !(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
+    root.addEventListener('click', e => {
       const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
       if (!btn) return;
       if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
-      const now = Date.now();
-      if (now - Number(state.lastButtonSoundAt || 0) < 90) return;
-      state.lastButtonSoundAt = now;
       try {
         initAudio();
         playUiTap();
       } catch (err) {}
-    };
+    }, true);
 
-    root.addEventListener('click', delegatedButtonSound, true);
-    root.addEventListener('touchend', delegatedButtonSound, { capture: true, passive: true });
-    root.addEventListener('keydown', delegatedButtonSound, true);
+    root.addEventListener('keydown', e => {
+      if (!(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
+      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
+      if (!btn) return;
+      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
+      try {
+        initAudio();
+        playUiTap();
+      } catch (err) {}
+    }, true);
 
     window.addEventListener('keydown', onGlobalKey);
     window.addEventListener('resize', () => {
@@ -3057,18 +2764,6 @@ function ordinalSuffix(n) {
     setTimeout(() => slot.classList.remove('pulse'), 1200);
   }
 
-
-  function triggerBoardRipple(x, y, side) {
-    if (!ui.boardWrap) return;
-    const ripple = document.createElement('span');
-    ripple.className = 'fa-board-ripple' + (side === AI ? ' light' : '');
-    ripple.style.left = boardCoord(x) + 'px';
-    ripple.style.top = boardCoord(y) + 'px';
-    ui.boardWrap.appendChild(ripple);
-    setTimeout(() => {
-      try { ripple.remove(); } catch {}
-    }, 700);
-  }
 
   function getProfilePath(userId) {
     return 'omokProfiles/' + String(userId || '');
@@ -3400,18 +3095,13 @@ function ordinalSuffix(n) {
     return true;
   }
 
-  async function surrenderCurrentMatch() {
-    if (!state.started || state.gameOver || state.phase !== 'playing') return;
+  async function surrenderOnlineMatch() {
+    if (!isOnlineMode() || !state.started || state.gameOver || state.phase !== 'playing') return;
     const winner = getOpponentSide();
     state.gameOver = true;
     state.winner = winner;
     state.winningLine = [];
     await finishGame(winner, [], false, 'surrender');
-    if (!isOnlineMode()) {
-      setTimeout(() => {
-        openNoticePopup('DEFEAT', 'You surrendered. Defeat recorded.', 'Confirm');
-      }, 30);
-    }
   }
 
 
@@ -3715,23 +3405,16 @@ function ordinalSuffix(n) {
     if (!ui.lobbyConfirmActions || !ui.lobbyStartActions) return;
     ui.lobbyConfirmActions.classList.toggle('hidden', !!state.lobbyConfirmed);
     ui.lobbyStartActions.classList.toggle('hidden', !state.lobbyConfirmed);
-    if (ui.lobbyNavActions) {
-      const showLobbyHome = !!state.lobbyConfirmed && !isOnlineMode();
-      ui.lobbyNavActions.classList.toggle('hidden', !showLobbyHome);
-    }
   }
 
 
   function updateTurnTimerLabel() {
     if (!ui.turnTimer) return;
-    const visible = state.phase === 'playing' && state.started && !state.gameOver;
+    const visible = isOnlineMode() && state.phase === 'playing' && state.started && !state.gameOver;
     ui.turnTimer.classList.toggle('hidden', !visible);
     if (!visible) return;
     const secs = Math.max(0, Number(state.turnSecondsLeft || 0));
-    const owner = isOnlineMode()
-      ? (state.turn === getMySide() ? 'My Turn' : 'Enemy Turn')
-      : (state.turn === HUMAN ? 'My Turn' : 'AI Turn');
-    ui.turnTimer.textContent = `${owner} ${secs}`;
+    ui.turnTimer.textContent = `Turn ${secs}`;
     ui.turnTimer.classList.toggle('warning', secs <= 15 && secs > 5);
     ui.turnTimer.classList.toggle('danger', secs <= 5);
   }
@@ -3744,11 +3427,6 @@ function ordinalSuffix(n) {
     state.turnSecondsLeft = 60;
     state.turnLastAudioSecond = null;
     updateTurnTimerLabel();
-  }
-
-  function isTimedTurnLoserOnTimeout() {
-    if (isOnlineMode()) return state.turn;
-    return state.turn === HUMAN ? HUMAN : 0;
   }
 
   async function claimOnlineTimeoutLoss() {
@@ -3782,17 +3460,9 @@ function ordinalSuffix(n) {
 
   function startTurnTimer() {
     stopTurnTimer();
-    if (state.phase !== 'playing' || state.gameOver || !state.started) return;
-    if (!isOnlineMode() && state.turn !== HUMAN) {
-      state.turnSecondsLeft = 60;
-      updateTurnTimerLabel();
-      return;
-    }
-    const localExpiresAt = Date.now() + TURN_LIMIT_MS;
+    if (!isOnlineMode() || state.phase !== 'playing' || state.gameOver || !state.started) return;
     const tick = () => {
-      const expiresAt = isOnlineMode()
-        ? Number(state.online.turnExpiresAt || 0)
-        : localExpiresAt;
+      const expiresAt = Number(state.online.turnExpiresAt || 0);
       const secs = expiresAt ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : 60;
       state.turnSecondsLeft = secs;
       updateTurnTimerLabel();
@@ -3806,14 +3476,7 @@ function ordinalSuffix(n) {
       }
       if (secs <= 0) {
         stopTurnTimer();
-        if (isOnlineMode()) {
-          claimOnlineTimeoutLoss();
-        } else if (state.phase === 'playing' && state.started && !state.gameOver && state.turn === HUMAN) {
-          state.gameOver = true;
-          state.winner = AI;
-          state.winningLine = [];
-          finishGame(AI, [], false, 'clock');
-        }
+        claimOnlineTimeoutLoss();
       }
       if (ui.roomStatus && isOnlineMode() && state.online.status === 'playing') {
         const turnLabel = state.turn === getMySide() ? 'Your turn' : 'Friend turn';
@@ -3872,7 +3535,6 @@ function ordinalSuffix(n) {
     closeOverlay();
     setCountdownVisible(false, '', false);
     showPendingMoveAction(false);
-    startTurnTimer();
     updateMobileMode();
     syncUI();
     renderBoard();
@@ -4953,8 +4615,8 @@ function ordinalSuffix(n) {
     if (ui.enemyInfo) ui.enemyInfo.classList.toggle('hidden', !isOnlineMode());
     if (ui.selfInfo) ui.selfInfo.classList.toggle('hidden', !isOnlineMode());
     if (ui.currentStars) ui.currentStars.textContent = formatNumber(walletStars);
+    if (ui.topStars) ui.topStars.textContent = formatNumber(walletStars);
     if (ui.currentStakeNote) ui.currentStakeNote.textContent = `Owned Stars · ★ ${formatNumber(walletStars)}`;
-    if (ui.topStars) ui.topStars.textContent = `★ ${formatNumber(walletStars)}`;
     if (ui.roomStakePills && ui.roomStakePills.length) {
       ui.roomStakePills.forEach(btn => {
         const stake = Number(btn.dataset.stake || 0);
@@ -4977,10 +4639,9 @@ function ordinalSuffix(n) {
     const newGameBtn = ui.root.querySelector('#fa-newgame-btn');
     const pauseBtn = ui.root.querySelector('#fa-pause-btn');
     const resetCareerBtn = ui.root.querySelector('#fa-reset-score-btn');
-    const playingSurrenderAvailable = !!(state.phase === 'playing' && state.started && !state.gameOver);
-    const onlinePlayingOnlySurrender = !!(isOnlineMode() && playingSurrenderAvailable);
-    if (surrenderBtn) surrenderBtn.classList.toggle('hidden', !playingSurrenderAvailable);
-    if (floatingSurrenderBtn) floatingSurrenderBtn.classList.toggle('hidden', !playingSurrenderAvailable);
+    const onlinePlayingOnlySurrender = !!(isOnlineMode() && state.phase === 'playing' && state.started && !state.gameOver);
+    if (surrenderBtn) surrenderBtn.classList.toggle('hidden', !onlinePlayingOnlySurrender);
+    if (floatingSurrenderBtn) floatingSurrenderBtn.classList.toggle('hidden', !onlinePlayingOnlySurrender);
     if (newGameBtn) newGameBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
     if (pauseBtn) pauseBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
     if (resetCareerBtn) resetCareerBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
@@ -5303,7 +4964,6 @@ function ordinalSuffix(n) {
     if (state.gameOver) return;
 
     state.turn = AI;
-    startTurnTimer();
     syncUI();
     state.pendingLock = true;
     setTimeout(aiTurn, 150 + Math.min(350, state.streak * 35));
@@ -5313,7 +4973,6 @@ function ordinalSuffix(n) {
     state.board[y][x] = side;
     state.lastMove = { x, y, side };
     state.moveCount += 1;
-    triggerBoardRipple(x, y, side);
     state.review.push({ board: cloneBoard(state.board), lastMove: { x, y, side } });
     state.reviewIndex = state.review.length - 1;
     hitSound('stone');
@@ -5335,7 +4994,6 @@ function ordinalSuffix(n) {
       return;
     }
     state.turn = side === HUMAN ? AI : HUMAN;
-    startTurnTimer();
     syncUI();
   }
 
@@ -5408,7 +5066,6 @@ function ordinalSuffix(n) {
     state.started = false;
     closePauseScreen();
     closeOverlay();
-    state.appScreen = 'home';
     syncUI();
     await renderLeaderboard();
     renderBoard(undefined, undefined, line);
@@ -5455,27 +5112,11 @@ function ordinalSuffix(n) {
       } catch (e) {
         console.log('post-finish room reset ignored:', e);
       }
-
-      const popupTitle = winner === mySide ? 'VICTORY' : winner === oppSide ? 'LOSS' : 'DRAW';
-      const popupTextParts = [
-        winner === mySide ? 'You won the match.' : winner === oppSide ? 'You lost the match.' : 'The match ended in a draw.'
-      ];
-      if (starsText) popupTextParts.push(starsText);
-      if (getCurrentStars() < normalizeStarWager(state.online.starWager, STAR_WAGER_OPTIONS[0])) {
-        popupTextParts.push('You do not have enough stars for an instant rematch, so leave the room before playing again.');
-      } else {
-        popupTextParts.push('Stay in the room and press Ready for an instant rematch.');
-      }
-      try {
-        initAudio();
-        playRoomEventChime(winner === mySide ? 'create' : 'join');
-      } catch (e) {}
-      openNoticePopup(popupTitle, popupTextParts.join(' '), 'OK');
+      showOverlay(title, text + (getCurrentStars() < normalizeStarWager(state.online.starWager, STAR_WAGER_OPTIONS[0]) ? ' Not enough stars for rematch, so you will leave the room.' : ' Stay in the room and press Ready for an immediate rematch.'), { starsText, starsTone, confirmOnly: false });
       return;
     }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        state.appScreen = isOnlineMode() ? 'room' : 'ai';
         openStartScreen();
         syncUI();
       });
@@ -6061,11 +5702,9 @@ function ordinalSuffix(n) {
         });
       }
     } catch (e) {}
-    state.appScreen = 'home';
     syncUI();
     await renderLeaderboard();
     renderBoard();
-    syncAppScreen();
     if (state.profile) {
       publishMyProfile();
       loadFriendsFromRemote();
@@ -6079,18 +5718,9 @@ function ordinalSuffix(n) {
       openStartScreen();
       ui.nickNote.textContent = 'Set your nickname first on the home screen to enter the arena.';
     }
+    state.appScreen = 'home';
     syncAppScreen();
     updateMobileMode();
-    try {
-      document.documentElement.classList.remove('fa-preboot-hide');
-      document.documentElement.classList.remove('fa-app-not-ready');
-      if (document.body) {
-        document.body.classList.remove('fa-preboot-hide');
-        document.body.classList.remove('fa-app-not-ready');
-        document.body.style.visibility = '';
-        document.body.style.opacity = '';
-      }
-    } catch {}
   }
 
   if (document.readyState === 'loading') {
