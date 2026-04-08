@@ -19,9 +19,6 @@ function ordinalSuffix(n) {
   const WEEKLY_RESET_META_KEY = 'fa_omok_weekly_reset_meta_v1';
   const WEEKLY_PREV_LEADERBOARD_KEY = 'fa_omok_weekly_prev_board_v1';
   const WEEKLY_PREV_META_KEY = 'fa_omok_weekly_prev_meta_v1';
-  const FIREBASE_WEEKLY_META_PATH = 'leaderboards/omokWeeklyMeta';
-  const FIREBASE_WEEKLY_BOARD_ROOT = 'leaderboards/omokWeekly';
-  const FIREBASE_WEEKLY_SNAPSHOT_ROOT = 'leaderboards/omokWeeklySnapshot';
   const FRIENDS_KEY = 'fa_omok_friends_v1';
   const BOARD_SIZE = 15;
   const CELL = 44;
@@ -47,9 +44,8 @@ function ordinalSuffix(n) {
 
   const FirebaseLeaderboardAdapter = {
   mode: 'firebase-ready',
-  _realtimeRef: null,
 
-  async fetchAll() {
+  async fetchTop(limit = 50) {
     try {
       const snapshot = await firebase
         .database()
@@ -59,46 +55,11 @@ function ordinalSuffix(n) {
       const data = snapshot.val();
       if (!data) return [];
 
-      return sanitizeLeaderboardEntries(Object.values(data).filter(Boolean));
+      const list = Object.values(data).filter(Boolean);
+      return sanitizeLeaderboardEntries(list).slice(0, limit);
     } catch (e) {
-      console.error('fetchAll firebase error:', e);
-      return getLocalLeaderboard();
-    }
-  },
-
-  async fetchTop(limit = 50) {
-    const list = await this.fetchAll();
-    return list.slice(0, limit);
-  },
-
-  subscribeRealtime(onChange) {
-    try {
-      if (!window.firebase || !firebase.database) return null;
-      if (this._realtimeRef) {
-        try { this._realtimeRef.off(); } catch {}
-      }
-      const ref = firebase.database().ref('leaderboards/omok');
-      ref.on('value', snap => {
-        try {
-          const data = snap.val() || {};
-          const list = sanitizeLeaderboardEntries(Object.values(data).filter(Boolean));
-          if (typeof onChange === 'function') onChange(list);
-        } catch (err) {
-          console.log('leaderboard realtime ignored:', err);
-        }
-      });
-      this._realtimeRef = ref;
-      return ref;
-    } catch (e) {
-      console.error('subscribeRealtime firebase error:', e);
-      return null;
-    }
-  },
-
-  unsubscribeRealtime() {
-    if (this._realtimeRef) {
-      try { this._realtimeRef.off(); } catch {}
-      this._realtimeRef = null;
+      console.error('fetchTop firebase error:', e);
+      return getLocalLeaderboard().slice(0, limit);
     }
   },
 
@@ -111,9 +72,7 @@ function ordinalSuffix(n) {
         .ref('leaderboards/omok/' + entry.id)
         .set(entry);
 
-      const all = await this.fetchAll();
-      state.allLeaderboardEntries = all;
-      state.leaderboardCache = all.slice(0, 50);
+      state.leaderboardCache = await this.fetchTop(50);
       return true;
     } catch (e) {
       console.error('saveEntry firebase error:', e);
@@ -173,7 +132,6 @@ function ordinalSuffix(n) {
     winningLine: [],
     remoteAdapter: FirebaseLeaderboardAdapter,
     leaderboardCache: [],
-    allLeaderboardEntries: [],
     fullscreenRequested: false,
     lastResult: null,
     lobbyConfirmed: false,
@@ -226,163 +184,12 @@ function ordinalSuffix(n) {
       lastLoadedAt: 0,
       popupChallengeId: '',
       challengePopupOpen: false,
-      dismissedChallengeId: localStorage.getItem('fa_omok_dismissed_challenge_id') || ''
+      dismissedChallengeId: (function(){ try { return localStorage.getItem('fa_omok_dismissed_challenge_id') || ''; } catch(e) { return ''; } })()
     },
-    nextStarter: HUMAN,
-    sharedWeeklyLeaderboard: [],
-    sharedPreviousWeeklyLeaderboard: [],
-    appScreen: 'home',
-    lastNonGameScreen: 'home'
+    nextStarter: HUMAN
   };
 
   const ui = {};
-
-  function hasActiveRoomSession() {
-    return !!(state.online && (state.online.roomId || state.online.roomCode));
-  }
-
-  function isRoomNavigationLocked() {
-    return hasActiveRoomSession();
-  }
-
-  function getOnlineMenuScreen() {
-    const panel = state.online?.panelMode || 'none';
-    if (panel === 'create') return 'create-room';
-    if (panel === 'join') return 'friend-match';
-    if (panel === 'friends') return 'friends';
-    return 'online';
-  }
-
-
-  function resolveAppScreen() {
-    if (state.phase === 'playing' || state.phase === 'paused' || state.phase === 'countdown') return 'game';
-    if (hasActiveRoomSession()) return 'room';
-    return state.appScreen || 'home';
-  }
-
-  function navigateToScreen(screen, options = {}) {
-    const target = String(screen || 'home');
-    const bypassLock = !!options.bypassLock;
-    const locked = isRoomNavigationLocked() && !['room','game','ranking'].includes(target);
-    if (locked && !bypassLock) {
-      state.appScreen = 'room';
-      syncAppScreen();
-      scrollViewportToActiveScreen('room');
-      return false;
-    }
-    if (target === 'ranking') {
-      state.appScreen = 'ranking';
-      state.lastNonGameScreen = 'ranking';
-    } else if (target === 'game') {
-      state.appScreen = 'game';
-    } else {
-      state.appScreen = target;
-      state.lastNonGameScreen = target;
-    }
-    syncAppScreen();
-    scrollViewportToActiveScreen(target);
-    return true;
-  }
-
-  function syncAppScreen() {
-    const screen = resolveAppScreen();
-    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
-    const route = 'fa-route-' + visualScreen;
-    document.body.classList.remove(
-      'fa-route-home','fa-route-ranking','fa-route-ai','fa-route-online',
-      'fa-route-room','fa-route-game','fa-route-create-room','fa-route-friend-match','fa-route-friends'
-    );
-    document.body.classList.add(route);
-    document.body.classList.toggle('fa-needs-profile', !state.profile);
-
-    if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
-    if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
-    if (ui.main) ui.main.classList.toggle('hidden', screen === 'ranking' || (screen === 'home' && !!state.profile));
-
-    if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
-    if (ui.navAi) ui.navAi.classList.toggle('active', visualScreen === 'ai');
-    if (ui.navCreateRoom) ui.navCreateRoom.classList.toggle('active', visualScreen === 'create-room');
-    if (ui.navFriendMatch) ui.navFriendMatch.classList.toggle('active', visualScreen === 'friend-match');
-    if (ui.navFriends) ui.navFriends.classList.toggle('active', visualScreen === 'friends');
-    if (ui.navRanking) ui.navRanking.classList.toggle('active', visualScreen === 'ranking');
-
-    if (ui.sceneTitle) {
-      const labels = {
-        home: 'Arcade Home',
-        ai: 'Ranked AI Match',
-        'create-room': 'Create Online Room',
-        'friend-match': 'Friend Match Rooms',
-        friends: 'Online Friends',
-        room: 'Room Waiting Room',
-        game: isOnlineMode() ? 'Live Online Match' : 'Live Ranked Match',
-        ranking: 'Ranking Hall'
-      };
-      ui.sceneTitle.textContent = labels[visualScreen] || 'Arcade Home';
-    }
-    if (ui.sceneSubtitle) {
-      let sub = 'Each tab opens its own full screen like a mobile game app.';
-      if (screen === 'room') sub = 'You are inside a room. Leave Room before switching to another session.';
-      else if (screen === 'game') sub = 'Live board and in-match actions only.';
-      else if (visualScreen === 'create-room') sub = 'Create a room immediately on this dedicated screen.';
-      else if (visualScreen === 'friend-match') sub = 'See open friend rooms immediately from this dedicated screen.';
-      else if (visualScreen === 'friends') sub = 'See online friends immediately from this dedicated screen.';
-      else if (visualScreen === 'ai') sub = 'Start a ranked AI duel from a dedicated match screen.';
-      else if (visualScreen === 'ranking') sub = 'Total, weekly, and previous weekly rankings update automatically.';
-      ui.sceneSubtitle.textContent = sub;
-    }
-    updateHomeScene();
-    if (!state.profile && state.appScreen === 'home' && ui.sceneTitle) {
-      ui.sceneTitle.textContent = 'Create Your Nickname';
-      if (ui.sceneSubtitle) ui.sceneSubtitle.textContent = 'Set your nickname first, then enter each game screen like a mobile app.';
-    }
-  }
-
-  function scrollViewportToActiveScreen(screenHint = '') {
-    const screen = screenHint || resolveAppScreen();
-    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
-    const target = visualScreen === 'home'
-      ? ui.homeScene
-      : visualScreen === 'ranking'
-        ? ui.rankingScene
-        : ui.main;
-
-    const containers = [ui.main, ui.homeScene, ui.rankingScene].filter(Boolean);
-    containers.forEach(el => {
-      try { el.scrollTop = 0; } catch {}
-    });
-
-    requestAnimationFrame(() => {
-      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch { window.scrollTo(0, 0); }
-      requestAnimationFrame(() => {
-        containers.forEach(el => {
-          try { el.scrollTop = 0; } catch {}
-        });
-        if (!target) return;
-        try {
-          target.scrollIntoView({ block: 'start', behavior: 'auto' });
-        } catch {}
-      });
-    });
-  }
-
-  function updateHomeScene() {
-    if (!ui.homeStats) return;
-    ui.homeStats.innerHTML = `
-      <div class="fa-scene-stat"><span>Wins</span><strong>${state.totalWins}</strong></div>
-      <div class="fa-scene-stat"><span>Losses</span><strong>${state.totalLosses}</strong></div>
-      <div class="fa-scene-stat"><span>Best Streak</span><strong>${state.bestStreak}</strong></div>
-      <div class="fa-scene-stat"><span>Stars</span><strong>★ ${formatNumber(getCurrentStars())}</strong></div>
-    `;
-    if (ui.homeProfileName) ui.homeProfileName.textContent = state.profile ? state.profile.nickname : 'Guest';
-    if (ui.homeProfileRank) ui.homeProfileRank.textContent = getCurrentRankFromState();
-    if (ui.homeRoomLock) {
-      ui.homeRoomLock.textContent = hasActiveRoomSession()
-        ? 'Room active · leave the room before moving to another tab.'
-        : 'No active room · each menu opens as its own app-like screen.';
-    }
-  }
-
-
 
   function createBoard() {
     return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
@@ -393,7 +200,8 @@ function ordinalSuffix(n) {
   }
 
   function uid() {
-    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
   }
 
   function normalizeStars(value) {
@@ -636,179 +444,6 @@ function ordinalSuffix(n) {
     }
   }
 
-  async function syncFirebaseWeeklySeasonMeta(season = getWeeklyWindow()) {
-    if (!window.firebase || !firebase.database) return null;
-    try {
-      const ref = firebase.database().ref(FIREBASE_WEEKLY_META_PATH);
-      const snap = await ref.once('value');
-      const meta = snap.val() || {};
-      const current = meta.current || null;
-      if (!current || String(current.key || '') !== String(season.key)) {
-        const nextMeta = {
-          current: { key: season.key, start: season.start.getTime(), end: season.end.getTime(), updatedAt: Date.now() },
-          previous: current && current.key ? { key: current.key, start: current.start || 0, end: current.end || 0, updatedAt: Date.now() } : (meta.previous || null)
-        };
-        await ref.update(nextMeta);
-        return nextMeta;
-      }
-      return meta;
-    } catch (err) {
-      console.log('weekly meta sync ignored:', err);
-      return null;
-    }
-  }
-
-  async function fetchFirebaseWeeklyLeaderboardByKey(seasonKey, limit = 7) {
-    if (!window.firebase || !firebase.database || !seasonKey) return [];
-    try {
-      const snap = await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(seasonKey)).once('value');
-      const raw = snap.val() || {};
-      const list = Object.values(raw)
-        .filter(Boolean)
-        .map(v => ({
-          ...v,
-          totalWins: Number(v.weeklyWins || 0),
-          totalLosses: Number(v.weeklyLosses || 0),
-          totalGames: Number(v.weeklyGames || 0)
-        }));
-      return sanitizeLeaderboardEntries(list.filter(v => Number(v.totalWins || 0) > 0)).slice(0, limit);
-    } catch (err) {
-      console.log('weekly board fetch ignored:', err);
-      return [];
-    }
-  }
-
-  async function fetchFirebaseWeeklyLeaderboards(limit = 7) {
-    const season = getWeeklyWindow();
-    let meta = await syncFirebaseWeeklySeasonMeta(season);
-    if (!meta && window.firebase && firebase.database) {
-      try {
-        const snap = await firebase.database().ref(FIREBASE_WEEKLY_META_PATH).once('value');
-        meta = snap.val() || null;
-      } catch (err) {
-        console.log('weekly meta fetch ignored:', err);
-      }
-    }
-    const currentKey = String(meta?.current?.key || season.key);
-    const previousKey = String(meta?.previous?.key || '');
-
-    let totals = [];
-    try {
-      const snapshot = await firebase.database().ref('leaderboards/omok').once('value');
-      const rawTotals = snapshot.val() || {};
-      totals = sanitizeLeaderboardEntries(Object.values(rawTotals).filter(Boolean));
-    } catch (err) {
-      totals = Array.isArray(state.allLeaderboardEntries) ? sanitizeLeaderboardEntries(state.allLeaderboardEntries) : [];
-    }
-
-    let snapshotRaw = {};
-    let previousSnapshotRaw = {};
-    try {
-      const snap = await firebase.database().ref(FIREBASE_WEEKLY_SNAPSHOT_ROOT + '/' + String(currentKey)).once('value');
-      snapshotRaw = snap.val() || {};
-      if (!Object.keys(snapshotRaw).length && totals.length) {
-        const seeded = {};
-        totals.forEach(entry => {
-          seeded[entry.id] = {
-            id: entry.id,
-            nickname: entry.nickname || '',
-            totalWins: Number(entry.totalWins || 0),
-            totalLosses: Number(entry.totalLosses || 0),
-            totalGames: Number(entry.totalGames || 0),
-            createdAt: Date.now()
-          };
-        });
-        snapshotRaw = seeded;
-        try { await firebase.database().ref(FIREBASE_WEEKLY_SNAPSHOT_ROOT + '/' + String(currentKey)).set(seeded); } catch {}
-      }
-    } catch (err) {
-      console.log('weekly snapshot fetch ignored:', err);
-    }
-    if (previousKey) {
-      try {
-        const prevSnap = await firebase.database().ref(FIREBASE_WEEKLY_SNAPSHOT_ROOT + '/' + String(previousKey)).once('value');
-        previousSnapshotRaw = prevSnap.val() || {};
-      } catch (err) {
-        console.log('previous weekly snapshot fetch ignored:', err);
-      }
-    }
-
-    const currentBoardRaw = await fetchFirebaseWeeklyLeaderboardByKey(currentKey, Math.max(limit, 1000));
-    const previousBoardRaw = previousKey ? await fetchFirebaseWeeklyLeaderboardByKey(previousKey, Math.max(limit, 1000)) : [];
-
-    const currentBoardMap = new Map((currentBoardRaw || []).map(v => [v.id, v]));
-    const previousBoardMap = new Map((previousBoardRaw || []).map(v => [v.id, v]));
-
-    const derivedWeekly = totals.map(entry => {
-      const baseline = snapshotRaw?.[entry.id] || null;
-      const boardEntry = currentBoardMap.get(entry.id);
-      const deltaWins = baseline ? Math.max(0, Number(entry.totalWins || 0) - Number(baseline.totalWins || 0)) : 0;
-      const deltaLosses = baseline ? Math.max(0, Number(entry.totalLosses || 0) - Number(baseline.totalLosses || 0)) : 0;
-      const deltaGames = baseline ? Math.max(0, Number(entry.totalGames || 0) - Number(baseline.totalGames || 0)) : 0;
-      const weeklyWins = Math.max(Number(boardEntry?.totalWins || 0), deltaWins);
-      const weeklyLosses = Math.max(Number(boardEntry?.totalLosses || 0), deltaLosses);
-      const weeklyGames = Math.max(Number(boardEntry?.totalGames || 0), deltaGames);
-      return {
-        ...entry,
-        totalWins: weeklyWins,
-        totalLosses: weeklyLosses,
-        totalGames: weeklyGames,
-        weeklyWins,
-        weeklyLosses,
-        weeklyGames,
-        weeklyKey: currentKey
-      };
-    }).filter(v => Number(v.totalWins || 0) > 0);
-
-    let weekly = sanitizeLeaderboardEntries(derivedWeekly).slice(0, limit);
-    if (!weekly.length) {
-      weekly = totals.slice(0, limit).map(entry => ({
-        ...entry,
-        totalWins: Number(entry.weeklyWins || entry.totalWins || 0),
-        totalLosses: Number(entry.weeklyLosses || entry.totalLosses || 0),
-        totalGames: Number(entry.weeklyGames || entry.totalGames || 0),
-        weeklyKey: currentKey
-      }));
-    }
-
-    const derivedPrevious = totals.map(entry => {
-      const prevSnap = previousSnapshotRaw?.[entry.id] || null;
-      const boardEntry = previousBoardMap.get(entry.id);
-      const prevWins = Math.max(Number(boardEntry?.totalWins || 0), prevSnap ? Math.max(0, Number(entry.totalWins || 0) - Number(prevSnap.totalWins || 0)) : 0);
-      const prevLosses = Math.max(Number(boardEntry?.totalLosses || 0), prevSnap ? Math.max(0, Number(entry.totalLosses || 0) - Number(prevSnap.totalLosses || 0)) : 0);
-      const prevGames = Math.max(Number(boardEntry?.totalGames || 0), prevSnap ? Math.max(0, Number(entry.totalGames || 0) - Number(prevSnap.totalGames || 0)) : 0);
-      return {
-        ...entry,
-        totalWins: prevWins,
-        totalLosses: prevLosses,
-        totalGames: prevGames,
-        weeklyKey: previousKey
-      };
-    }).filter(v => Number(v.totalWins || 0) > 0);
-
-    const previous = previousKey ? sanitizeLeaderboardEntries(derivedPrevious).slice(0, limit) : [];
-    state.sharedWeeklyLeaderboard = weekly;
-    state.sharedPreviousWeeklyLeaderboard = previous;
-    return { weekly, previous, meta };
-  }
-
-  async function saveWeeklyEntryToFirebase(entry) {
-    if (!window.firebase || !firebase.database || !entry || !entry.id) return false;
-    try {
-      const season = getWeeklyWindow();
-      await syncFirebaseWeeklySeasonMeta(season);
-      await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(season.key) + '/' + entry.id).set({
-        ...entry,
-        weeklyKey: season.key,
-        updatedAt: Date.now()
-      });
-      return true;
-    } catch (err) {
-      console.log('weekly board save ignored:', err);
-      return false;
-    }
-  }
-
   function ensureWeeklySeason() {
     const season = getWeeklyWindow();
     let meta = null;
@@ -874,1577 +509,1396 @@ function ordinalSuffix(n) {
       const season = ensureWeeklySeason();
       if (state.profile.weeklyKey !== season.key) { state.profile.weeklyKey = season.key; state.profile.weeklyWins = 0; state.profile.weeklyLosses = 0; state.profile.weeklyGames = 0; }
     }
-    state.allLeaderboardEntries = getLocalLeaderboard();
-    state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
+    state.leaderboardCache = getLocalLeaderboard().slice(0, 50);
   }
 
   function createShell() {
     document.body.style.margin = '0';
-    document.body.style.background = '#2c1d10';
+    document.body.style.padding = '0';
+    document.body.style.overflow = 'hidden';
+    document.body.style.background = '#1a0f07';
     document.body.style.fontFamily = 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
     document.body.style.color = '#fff8ef';
     document.body.innerHTML = '';
 
     const root = document.createElement('div');
     root.id = 'fa-omok-app';
+
+    const CANVAS_S = PADDING * 2 + CELL * (BOARD_SIZE - 1);
+
     root.innerHTML = `
-      <div class="fa-wrap">
-        <div class="fa-bg"></div>
-        <div class="fa-grid"></div>
+<!-- ═══════════════════════════════════════════════
+     SCREEN: HOME  (fa-screen-home)
+═══════════════════════════════════════════════ -->
+<div class="fa-screen active" id="fa-screen-home">
+  <div class="fa-home-bg"></div>
+  <div class="fa-home-content">
+    <div class="fa-home-top">
+      <div class="fa-app-logo">
+        <div class="fa-logo-badge">FA</div>
+        <div class="fa-logo-text">
+          <div class="fa-logo-title">Gomoku</div>
+          <div class="fa-logo-sub">Prestige Arena</div>
+        </div>
+      </div>
+      <button class="fa-icon-btn" id="fa-home-leaderboard-btn" aria-label="Leaderboard">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="1" y="9" width="4" height="12" rx="1.5" fill="currentColor" opacity=".7"/><rect x="9" y="5" width="4" height="16" rx="1.5" fill="currentColor"/><rect x="17" y="1" width="4" height="20" rx="1.5" fill="currentColor" opacity=".7"/></svg>
+      </button>
+    </div>
 
-        <div class="fa-topbar">
-          <div class="fa-brand-area">
-            <div class="fa-brand">
-              <div class="fa-brand-badge">FA</div>
-              <div>
-                <div class="fa-brand-title">${APP_NAME}</div>
-                <div class="fa-brand-sub">Prestige Gomoku Arena</div>
-              </div>
-            </div>
-          </div>
-          <div class="fa-top-actions">
-            <div class="fa-top-starbox" id="fa-top-starbox" aria-label="Owned stars">
-              <span class="fa-top-star-icon" aria-hidden="true">★</span>
-              <div class="fa-top-star-meta">
-                <span class="fa-top-star-label">My Stars</span>
-                <strong id="fa-top-stars">10,000</strong>
-              </div>
-            </div>
-            <button class="fa-btn ghost hidden" id="fa-open-leaderboard">Leaderboard</button>
-            <button class="fa-btn ghost hidden" id="fa-pause-top-btn">Pause</button>
+    <div class="fa-home-profile" id="fa-home-profile">
+      <div class="fa-avatar self large" id="fa-home-avatar" data-avatar="🐻"></div>
+      <div class="fa-home-profile-meta">
+        <div class="fa-home-name" id="fa-home-name">Guest</div>
+        <div class="fa-home-rank-badge" id="fa-home-rank">1 Grade</div>
+      </div>
+      <div class="fa-home-stars">
+        <span class="fa-star-pip">★</span>
+        <span id="fa-home-stars-val">10,000</span>
+      </div>
+    </div>
+
+    <div class="fa-home-stats-row">
+      <div class="fa-home-stat"><span id="fa-hs-wins">0</span><label>Wins</label></div>
+      <div class="fa-home-stat-div"></div>
+      <div class="fa-home-stat"><span id="fa-hs-losses">0</span><label>Losses</label></div>
+      <div class="fa-home-stat-div"></div>
+      <div class="fa-home-stat"><span id="fa-hs-streak">0</span><label>Best Streak</label></div>
+    </div>
+
+    <div class="fa-home-rank-progress">
+      <div class="fa-hrp-label">
+        <span id="fa-hrp-rank">1 Grade</span>
+        <span id="fa-hrp-pts">0 / 5 pts</span>
+      </div>
+      <div class="fa-hrp-bar"><div class="fa-hrp-fill" id="fa-hrp-fill"></div></div>
+    </div>
+
+    <div class="fa-home-actions">
+      <button class="fa-main-btn primary" id="fa-btn-play-ai">
+        <span class="fa-main-btn-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5"/><path d="M8 6.5l6 3.5-6 3.5V6.5z" fill="currentColor"/></svg>
+        </span>
+        <span class="fa-main-btn-label">
+          <span class="fa-main-btn-title">Play vs AI</span>
+          <span class="fa-main-btn-sub" id="fa-ai-level-label">Calm difficulty</span>
+        </span>
+        <span class="fa-main-btn-arrow">›</span>
+      </button>
+      <button class="fa-main-btn" id="fa-btn-play-friend">
+        <span class="fa-main-btn-icon">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="8" cy="7" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 17c0-3.314 2.686-6 6-6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="14" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M11 19c0-1.657 1.343-3 3-3s3 1.343 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </span>
+        <span class="fa-main-btn-label">
+          <span class="fa-main-btn-title">Play vs Friend</span>
+          <span class="fa-main-btn-sub">Online match · Star wager</span>
+        </span>
+        <span class="fa-main-btn-arrow">›</span>
+      </button>
+    </div>
+
+    <div class="fa-home-bottom-nav">
+      <button class="fa-nav-btn active" id="fa-nav-home" onclick="void(0)">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 9.5L10 3l7 6.5V17a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 18v-5h4v5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="fa-nav-btn" id="fa-nav-lb">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="1" y="9" width="4" height="10" rx="1" fill="currentColor" opacity=".6"/><rect x="8" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="15" y="1" width="4" height="18" rx="1" fill="currentColor" opacity=".6"/></svg>
+        <span>Ranking</span>
+      </button>
+      <button class="fa-nav-btn" id="fa-nav-profile">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M3 18c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>Profile</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN: SETUP / PROFILE  (fa-screen-setup)
+═══════════════════════════════════════════════ -->
+<div class="fa-screen" id="fa-screen-setup">
+  <div class="fa-screen-nav-bar">
+    <button class="fa-back-btn" id="fa-setup-back">‹ Back</button>
+    <div class="fa-screen-title">Set Up Profile</div>
+    <div></div>
+  </div>
+  <div class="fa-setup-body">
+    <div class="fa-avatar self large" id="fa-setup-avatar" data-avatar="🐻" style="margin:0 auto 20px;"></div>
+    <div id="fa-setup-nick-editor">
+      <label class="fa-field-label">Nickname</label>
+      <input id="fa-nickname" class="fa-text-input" maxlength="18" autocomplete="off" spellcheck="false" placeholder="Enter your nickname" />
+      <div class="fa-field-note" id="fa-nick-note">2–18 letters or numbers. Used for leaderboard.</div>
+    </div>
+    <div class="fa-fixed-profile hidden" id="fa-fixed-profile">
+      <div class="fa-field-label">Nickname Locked</div>
+      <div class="fa-fixed-name" id="fa-fixed-name">Player</div>
+    </div>
+    <button class="fa-cta-btn" id="fa-confirm-profile-btn">Confirm Nickname</button>
+    <button class="fa-cta-btn ghost hidden" id="fa-save-start" style="margin-top:10px;">Start Game</button>
+    <button class="fa-cta-btn ghost hidden fa-mobile-only" id="fa-mobile-fullscreen-btn" style="margin-top:10px;">Play Fullscreen</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN: LOBBY / FRIEND MATCH  (fa-screen-lobby)
+═══════════════════════════════════════════════ -->
+<div class="fa-screen" id="fa-screen-lobby">
+  <div class="fa-screen-nav-bar">
+    <button class="fa-back-btn" id="fa-lobby-back">‹ Back</button>
+    <div class="fa-screen-title">Friend Match</div>
+    <div></div>
+  </div>
+  <div class="fa-lobby-body">
+    <div class="fa-lobby-wallet">
+      <span class="fa-star-pip large">★</span>
+      <span class="fa-lobby-stars" id="fa-lobby-stars-val">10,000</span>
+      <span class="fa-lobby-stars-label">Stars</span>
+    </div>
+
+    <div class="fa-lobby-result hidden" id="fa-lobby-result">
+      <div class="fa-lr-title" id="fa-lobby-result-title">Last Match</div>
+      <div class="fa-lr-text" id="fa-lobby-result-text">Ready for your next duel.</div>
+    </div>
+
+    <div class="fa-lobby-status-card" id="fa-lobby-status-card">
+      <div class="fa-room-code-view" id="fa-room-code-view">No room yet</div>
+      <div class="fa-room-status-text" id="fa-room-status">Create or join a room to start.</div>
+    </div>
+
+    <div class="fa-room-presence hidden" id="fa-room-presence">
+      <div class="fa-room-presence-head">
+        <div class="fa-room-presence-badge" id="fa-room-presence-badge">ROOM STANDBY</div>
+        <div class="fa-room-presence-note" id="fa-room-presence-note">Create a room to invite your friend.</div>
+      </div>
+      <div class="fa-room-presence-slots">
+        <div class="fa-room-slot host" id="fa-room-host-slot">
+          <div class="fa-room-slot-avatar" id="fa-room-host-avatar">👑</div>
+          <div class="fa-room-slot-meta">
+            <div class="fa-room-slot-role">Host</div>
+            <div class="fa-room-slot-name" id="fa-room-host-name">Waiting</div>
           </div>
         </div>
-
-        <div class="fa-scene-nav-wrap">
-          <div class="fa-scene-nav">
-            <button class="fa-chip active" id="fa-nav-home">Home</button>
-            <button class="fa-chip" id="fa-nav-ai">AI Match</button>
-            <button class="fa-chip" id="fa-nav-create-room">Create Room</button>
-            <button class="fa-chip" id="fa-nav-friend-match">Friend Match</button>
-            <button class="fa-chip" id="fa-nav-friends">Friends</button>
-            <button class="fa-chip" id="fa-nav-ranking">Ranking</button>
-          </div>
-          <div class="fa-scene-head">
-            <div>
-              <div class="fa-scene-title" id="fa-scene-title">Arcade Home</div>
-              <div class="fa-scene-subtitle" id="fa-scene-subtitle">Each tab opens its own full screen like a mobile game app.</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="fa-top-wallet-row">
-          <div class="fa-home-scene hidden" id="fa-home-scene">
-            <div class="fa-home-hero">
-              <div class="fa-home-hero-copy">
-                <div class="fa-stage-eyebrow">MULTI SCREEN ARCADE</div>
-                <div class="fa-stage-title" style="margin-top:8px;">Real lobby, real room, real match flow</div>
-                <div class="fa-stage-text" style="margin-top:10px;">Move between Home, AI Match, Online Lobby, Room Waiting Room, Live Match, and Ranking Hall. When you create or join a room, the room is locked to that session until you press Leave Room.</div>
-                <div class="fa-stage-actions" style="justify-content:flex-start;">
-                  <button class="fa-btn primary" id="fa-home-go-ai">Start AI Match</button>
-                  <button class="fa-btn" id="fa-home-go-online">Open Friend Match</button>
-                  <button class="fa-btn ghost" id="fa-home-go-ranking">Open Ranking Hall</button>
-                </div>
-              </div>
-              <div class="fa-home-hero-side">
-                <div class="fa-home-profile">
-                  <div class="fa-avatar self large" id="fa-home-avatar"></div>
-                  <div>
-                    <div class="fa-name" id="fa-home-profile-name">Guest</div>
-                    <div class="fa-rank" id="fa-home-profile-rank">1 Grade</div>
-                    <div class="fa-mini-note" id="fa-home-room-lock">No active room.</div>
-                  </div>
-                </div>
-                <div class="fa-home-stats" id="fa-home-stats"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="fa-ranking-scene hidden" id="fa-ranking-scene">
-            <div class="fa-panel" style="padding:18px;">
-              <div class="fa-modal-head" style="padding:0 0 16px;border-bottom:1px solid rgba(255,255,255,.08);">
-                <div>
-                  <div class="fa-modal-title">Leaderboard</div>
-                  <div class="fa-modal-sub">A dedicated ranking screen, separate from match flow.</div>
-                </div>
-              </div>
-              <div class="fa-leader-tabs" style="padding:16px 0 0;">
-                <button class="fa-chip active" id="fa-ranking-tab-total">Total Ranking</button>
-                <button class="fa-chip" id="fa-ranking-tab-weekly">Weekly Ranking Top 7</button>
-                <button class="fa-chip" id="fa-ranking-tab-previous">Previous Week Ranking</button>
-              </div>
-              <div class="fa-modal-body" id="fa-ranking-screen-list" style="padding:16px 0 0;max-height:none;"></div>
-            </div>
-          </div>
-          <div class="fa-panel wallet top-wallet-panel">
-            <div class="fa-panel-title">Star Wallet</div>
-            <div class="fa-panel-sub">Owned Stars</div>
-            <div class="fa-wallet-box">
-              <div class="fa-wallet-line">
-                <span class="fa-star-icon" aria-hidden="true">★</span>
-                <span class="fa-wallet-label">Current Stars</span>
-              </div>
-              <strong id="fa-current-stars">10,000</strong>
-              <div class="fa-wallet-mini" id="fa-current-stake-note">Owned Stars</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="fa-main">
-          <div class="fa-left">
-            <div class="fa-panel hero">
-              <div class="fa-status-row">
-                <div class="fa-player-card">
-                  <div class="fa-avatar self" id="fa-self-avatar"></div>
-                  <div class="fa-player-meta">
-                    <div class="fa-name" id="fa-player-name">Guest</div>
-                    <div class="fa-rank" id="fa-player-rank">1 Grade</div>
-                  </div>
-                </div>
-                <div class="fa-center-vs">
-                  <div class="fa-turn" id="fa-turn-label">Press Start</div>
-                  <div class="fa-streak" id="fa-streak-label">Win Streak 0</div>
-                  <div class="fa-turn-timer hidden" id="fa-turn-timer">Turn 60</div>
-                </div>
-                <div class="fa-player-card ai">
-                  <div class="fa-player-meta right">
-                    <div class="fa-name" id="fa-opponent-name">FA AI</div>
-                    <div class="fa-rank" id="fa-ai-rank">Calm</div>
-                  </div>
-                  <div class="fa-avatar bot"></div>
-                </div>
-              </div>
-
-              <div class="fa-board-wrap" id="fa-board-wrap">
-                <div class="fa-board-playerbar enemy" id="fa-enemy-info">
-                  <div class="fa-board-playerbar-name" id="fa-enemy-name">Opponent</div>
-                  <div class="fa-board-playerbar-stars" id="fa-enemy-stars">★ 0</div>
-                </div>
-                <canvas id="fa-board" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}"></canvas>
-                <div class="fa-board-playerbar self" id="fa-self-info">
-                  <div class="fa-board-playerbar-name" id="fa-self-name">You</div>
-                  <div class="fa-board-playerbar-stars" id="fa-self-stars">★ 0</div>
-                </div>
-
-                <div class="fa-countdown hidden" id="fa-countdown-overlay">
-                  <div class="fa-countdown-num" id="fa-countdown-text">3</div>
-                </div>
-
-                <div class="fa-place-action hidden" id="fa-place-action">
-                  <button class="fa-btn primary big" id="fa-place-btn">Place</button>
-                </div>
-                <div class="fa-win-burst hidden" id="fa-win-burst" aria-hidden="true"></div>
-
-                <div class="fa-stage fa-intro" id="fa-start-screen">
-                  <div class="fa-stage-card lobby">
-                    <div class="fa-stage-eyebrow">RANKED MATCH</div>
-                    <div class="fa-stage-title">Enter the Arena</div>
-                    <div class="fa-stage-text" id="fa-lobby-text">
-                      Create your name, step onto the board, and climb the rank ladder.
-                    </div>
-                    <div class="fa-mode-switch">
-                      <button class="fa-chip active" id="fa-mode-ai">AI Match</button>
-                      <button class="fa-chip" id="fa-mode-friend">Friend Match</button>
-                      <button class="fa-chip" id="fa-mode-friends">Friends</button>
-                      <button class="fa-chip hidden" id="fa-mode-create-room">Create Room</button>
-                    </div>
-                    <div class="fa-friend-panel hidden" id="fa-friend-panel">
-                      <div class="fa-friend-top">
-                        <div class="fa-room-code" id="fa-room-code-view">Room: ——</div>
-                        <div class="fa-room-status" id="fa-room-status">Create or join a room.</div>
-                      </div>
-                      <div class="fa-room-actions">
-                        <input id="fa-room-title-input" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Room title" />
-                        <input id="fa-room-code-input" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Enter room code (optional)" />
-                        <div class="fa-room-stake-pills" id="fa-room-stake-pills" aria-label="Star stake">
-                          <button type="button" class="fa-stake-pill active" data-stake="100">★ 100</button>
-                          <button type="button" class="fa-stake-pill" data-stake="1000">★ 1,000</button>
-                          <button type="button" class="fa-stake-pill" data-stake="10000">★ 10,000</button>
-                        </div>
-                        <button class="fa-btn" id="fa-create-room-btn">Create Room</button>
-                        <button class="fa-btn" id="fa-join-room-btn">Join Room</button>
-                        <button class="fa-btn ghost hidden" id="fa-leave-room-btn">Leave Room</button>
-                      </div>
-                      <div class="fa-room-presence hidden" id="fa-room-presence">
-                        <div class="fa-room-presence-head">
-                          <div class="fa-room-presence-badge" id="fa-room-presence-badge">ROOM STANDBY</div>
-                          <div class="fa-room-presence-note" id="fa-room-presence-note">Create a room to invite your friend.</div>
-                        </div>
-                        <div class="fa-room-presence-slots">
-                          <div class="fa-room-slot host" id="fa-room-host-slot">
-                            <div class="fa-room-slot-avatar" id="fa-room-host-avatar">👑</div>
-                            <div class="fa-room-slot-meta">
-                              <div class="fa-room-slot-role">Host</div>
-                              <div class="fa-room-slot-name" id="fa-room-host-name">Waiting for host</div>
-                            </div>
-                          </div>
-                          <div class="fa-room-slot guest" id="fa-room-guest-slot">
-                            <div class="fa-room-slot-avatar" id="fa-room-guest-avatar">✨</div>
-                            <div class="fa-room-slot-meta">
-                              <div class="fa-room-slot-role">Guest</div>
-                              <div class="fa-room-slot-name" id="fa-room-guest-name">Waiting for guest</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="fa-friends-panel hidden" id="fa-friends-panel">
-                        <div class="fa-open-rooms-head">
-                          <div class="fa-open-rooms-title">Online</div>
-                          <button class="fa-btn ghost tiny" id="fa-refresh-friends-btn">Refresh</button>
-                        </div>
-                        <div class="hidden" id="fa-online-controls"></div>
-                        <div class="fa-open-rooms-list" id="fa-friends-list"></div>
-                      </div>
-
-                      <div class="fa-open-rooms hidden" id="fa-open-rooms-panel">
-                        <div class="fa-open-rooms-head">
-                          <div class="fa-open-rooms-title">Open Rooms</div>
-                          <button class="fa-btn ghost tiny" id="fa-refresh-rooms-btn">Refresh</button>
-                        </div>
-                        <div class="fa-open-rooms-list" id="fa-open-rooms-list"></div>
-                      </div>
-                    </div>
-                    <div class="fa-lobby-result hidden" id="fa-lobby-result">
-                      <div class="fa-lobby-result-title" id="fa-lobby-result-title">Last Match</div>
-                      <div class="fa-lobby-result-text" id="fa-lobby-result-text">Ready for your next duel.</div>
-                    </div>
-                    <div class="fa-start-profile">
-                      <div class="fa-avatar self large" id="fa-start-avatar"></div>
-                      <div class="fa-start-fields">
-                        <div id="fa-nickname-editor">
-                          <label class="fa-input-label">Nickname</label>
-                          <input id="fa-nickname" maxlength="18" autocomplete="off" spellcheck="false" placeholder="Enter nickname" />
-                        </div>
-                        <div class="fa-fixed-profile hidden" id="fa-fixed-profile">
-                          <div class="fa-input-label">Nickname Locked</div>
-                          <div class="fa-fixed-name" id="fa-fixed-name">Player</div>
-                        </div>
-                        <div class="fa-mini-note" id="fa-nick-note">This nickname will be used for ranking and future Firebase sync.</div>
-                      </div>
-                    </div>
-                    <div class="fa-stage-actions" id="fa-lobby-confirm-actions">
-                      <button class="fa-btn primary big" id="fa-confirm-profile-btn">Confirm</button>
-                    </div>
-                    <div class="fa-stage-actions hidden" id="fa-lobby-start-actions">
-                      <button class="fa-btn primary big" id="fa-save-start">Game Start</button>
-                      <button class="fa-btn ghost big mobile-only" id="fa-mobile-fullscreen-btn">Play Fullscreen</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="fa-stage hidden" id="fa-pause-screen">
-                  <div class="fa-stage-card compact">
-                    <div class="fa-stage-eyebrow">MATCH PAUSED</div>
-                    <div class="fa-stage-title" id="fa-pause-title">Game Paused</div>
-                    <div class="fa-stage-text" id="fa-pause-text">Return to the board whenever you are ready.</div>
-                    <div class="fa-stage-actions split">
-                      <button class="fa-btn primary" id="fa-resume-btn">Resume</button>
-                      <button class="fa-btn" id="fa-back-lobby-btn">Back to Lobby</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="fa-overlay hidden" id="fa-overlay">
-                  <div class="fa-overlay-card">
-                    <div class="fa-overlay-title" id="fa-overlay-title">Victory</div>
-                    <div class="fa-overlay-stars hidden" id="fa-overlay-stars">+★ 850</div>
-                    <div class="fa-overlay-text" id="fa-overlay-text"></div>
-                    <div class="fa-overlay-actions">
-                      <button class="fa-btn primary hidden" id="fa-overlay-confirm-btn">Confirm</button>
-                      <button class="fa-btn primary" id="fa-rematch-btn">Play Again</button>
-                      <button class="fa-btn ghost" id="fa-overlay-lobby-btn">Leave Room</button>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="fa-floating-game-actions hidden" id="fa-floating-game-actions">
-                  <button class="fa-btn danger hidden" id="fa-floating-surrender">Surrender</button>
-                  <button class="fa-btn ghost" id="fa-floating-fullscreen">Fullscreen</button>
-                  <button class="fa-btn ghost hidden" id="fa-floating-exit-fullscreen">Exit Fullscreen</button>
-                </div>
-              </div>
-
-              <div class="fa-bottom">
-                <div class="fa-progress-box">
-                  <div class="fa-progress-top">
-                    <span id="fa-progress-rank">1 Grade</span>
-                    <span id="fa-progress-text">0 / 5 wins</span>
-                  </div>
-                  <div class="fa-progress-bar"><div id="fa-progress-fill"></div></div>
-                </div>
-                <div class="fa-actions">
-                  <button class="fa-btn" id="fa-newgame-btn">New Match</button>
-                  <button class="fa-btn" id="fa-pause-btn">Pause</button>
-                  <button class="fa-btn danger hidden" id="fa-surrender-btn">Surrender</button>
-                  <button class="fa-btn danger" id="fa-reset-score-btn">Reset Career</button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="fa-right">
-            <div class="fa-panel setup">
-              <div class="fa-panel-title">Profile</div>
-              <div class="fa-panel-sub">Leaderboard-ready profile for local play and Firebase sync.</div>
-              <div class="fa-profile-inline">
-                <div class="fa-avatar self" id="fa-side-avatar"></div>
-                <div class="fa-profile-main-meta">
-                  <div>
-                    <div class="fa-name" id="fa-side-name">Guest</div>
-                    <div class="fa-mini-note" id="fa-connection-note">Local ladder mode</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="fa-panel stats">
-              <div class="fa-panel-title">Career</div>
-              <div class="fa-stats-grid">
-                <div class="fa-stat-box"><span>Wins</span><strong id="fa-total-wins">0</strong></div>
-                <div class="fa-stat-box"><span>Losses</span><strong id="fa-total-losses">0</strong></div>
-                <div class="fa-stat-box"><span>Games</span><strong id="fa-total-games">0</strong></div>
-                <div class="fa-stat-box"><span>Best Streak</span><strong id="fa-best-tier">0</strong></div>
-              </div>
-            </div>
-
-            <div class="fa-panel info">
-              <div class="fa-panel-title">Arena</div>
-              <div class="fa-info-box">
-                <div class="fa-info-line"><span>Mode</span><strong id="fa-mode-line">Player vs AI</strong></div>
-                <div class="fa-info-line"><span>Rule</span><strong>Five in a row</strong></div>
-                <div class="fa-info-line"><span>Scale</span><strong id="fa-scale-line">Calm</strong></div>
-                <div class="fa-info-line"><span>Review</span><strong id="fa-review-line">Ready</strong></div>
-                <div class="fa-info-line"><span>Ranking</span><strong>Wins first · fewer losses wins ties</strong></div>
-              </div>
-            </div>
-
-            <div class="fa-panel lb">
-              <div class="fa-panel-title">Top 30</div>
-              <div class="fa-panel-sub">Only players with at least 1 win are listed.</div>
-              <div class="fa-leader-scroll" id="fa-leader-preview"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="fa-modal hidden" id="fa-leaderboard-modal">
-          <div class="fa-modal-card">
-            <div class="fa-modal-head">
-              <div>
-                <div class="fa-modal-title">Leaderboard</div>
-                <div class="fa-modal-sub">Ranked by wins first, then fewer losses</div>
-              </div>
-              <button class="fa-btn" id="fa-close-leaderboard">Close</button>
-            </div>
-            <div class="fa-leader-tabs">
-              <button class="fa-chip active" id="fa-leader-tab-total">Total Ranking</button>
-              <button class="fa-chip" id="fa-leader-tab-weekly">Weekly Ranking Top 7</button>
-              <button class="fa-chip" id="fa-leader-tab-previous">Previous Week Ranking</button>
-            </div>
-            <div class="fa-modal-body" id="fa-leaderboard-list"></div>
-          </div>
-        </div>
-
-        <div class="fa-modal hidden" id="fa-confirm-modal">
-          <div class="fa-confirm-card">
-            <div class="fa-confirm-icon">◆</div>
-            <div class="fa-confirm-title" id="fa-confirm-title">Reset Career</div>
-            <div class="fa-confirm-text" id="fa-confirm-text">Your wins, losses, and streak will be cleared.</div>
-            <div class="fa-confirm-progress hidden" id="fa-confirm-progress"><div id="fa-confirm-progress-fill"></div></div>
-            <div class="fa-confirm-actions">
-              <button class="fa-btn" id="fa-confirm-cancel">Cancel</button>
-              <button class="fa-btn primary" id="fa-confirm-ok">Confirm</button>
-            </div>
+        <div class="fa-room-slot guest" id="fa-room-guest-slot">
+          <div class="fa-room-slot-avatar" id="fa-room-guest-avatar">✨</div>
+          <div class="fa-room-slot-meta">
+            <div class="fa-room-slot-role">Guest</div>
+            <div class="fa-room-slot-name" id="fa-room-guest-name">Waiting</div>
           </div>
         </div>
       </div>
+    </div>
+
+    <div class="fa-friend-panel hidden" id="fa-friend-panel">
+      <div class="fa-fp-section" id="fa-create-room-section">
+        <div class="fa-fp-label">Create a Room</div>
+        <input id="fa-room-title-input" class="fa-text-input small" maxlength="24" autocomplete="off" spellcheck="false" placeholder="Room title (optional)" />
+        <input id="fa-room-code-input" class="fa-text-input small" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Private code (optional)" />
+        <div class="fa-room-stake-pills" id="fa-room-stake-pills-wrap" aria-label="Star stake">
+          <button type="button" class="fa-stake-pill active" data-stake="100">★ 100</button>
+          <button type="button" class="fa-stake-pill" data-stake="1000">★ 1,000</button>
+          <button type="button" class="fa-stake-pill" data-stake="10000">★ 10,000</button>
+        </div>
+        <button class="fa-cta-btn" id="fa-create-room-btn">Create Room</button>
+      </div>
+
+      <div class="fa-fp-divider"><span>or</span></div>
+
+      <div class="fa-fp-section">
+        <div class="fa-fp-label">Join a Room</div>
+        <div class="fa-fp-row">
+          <button class="fa-cta-btn outline" id="fa-join-room-btn">Browse Open Rooms</button>
+          <button class="fa-cta-btn ghost hidden" id="fa-leave-room-btn">Leave Room</button>
+        </div>
+      </div>
+
+      <div class="fa-open-rooms hidden" id="fa-open-rooms-panel">
+        <div class="fa-open-rooms-head">
+          <div class="fa-fp-label">Open Rooms</div>
+          <button class="fa-text-btn" id="fa-refresh-rooms-btn">Refresh</button>
+        </div>
+        <div class="fa-open-rooms-list" id="fa-open-rooms-list"></div>
+      </div>
+
+      <div class="fa-friends-panel hidden" id="fa-friends-panel">
+        <div class="fa-open-rooms-head">
+          <div class="fa-fp-label">Friends Online</div>
+          <button class="fa-text-btn" id="fa-refresh-friends-btn">Refresh</button>
+        </div>
+        <div class="hidden" id="fa-online-controls"></div>
+        <div class="fa-open-rooms-list" id="fa-friends-list"></div>
+      </div>
+    </div>
+
+    <button class="fa-cta-btn hidden" id="fa-lobby-game-start" style="margin-top:16px;">Game Start</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN: GAME  (fa-screen-game)
+═══════════════════════════════════════════════ -->
+<div class="fa-screen" id="fa-screen-game">
+  <div class="fa-game-header" id="fa-game-header">
+    <div class="fa-game-player-strip enemy" id="fa-game-enemy-strip">
+      <div class="fa-gps-stone white"></div>
+      <div class="fa-gps-meta">
+        <div class="fa-gps-name" id="fa-opponent-name">FA AI</div>
+        <div class="fa-gps-rank" id="fa-ai-rank">Calm</div>
+      </div>
+      <div class="fa-gps-stars hidden" id="fa-enemy-stars">★ 0</div>
+    </div>
+    <div class="fa-game-center-status">
+      <div class="fa-turn-badge" id="fa-turn-label">Press Start</div>
+      <div class="fa-streak-label" id="fa-streak-label">Streak 0</div>
+      <div class="fa-turn-timer hidden" id="fa-turn-timer">60s</div>
+    </div>
+    <div class="fa-game-player-strip self">
+      <div class="fa-gps-stars hidden" id="fa-self-stars">★ 0</div>
+      <div class="fa-gps-meta right">
+        <div class="fa-gps-name" id="fa-player-name">Guest</div>
+        <div class="fa-gps-rank" id="fa-player-rank">1 Grade</div>
+      </div>
+      <div class="fa-gps-stone black"></div>
+    </div>
+  </div>
+
+  <div class="fa-board-area" id="fa-board-wrap">
+    <div class="fa-board-playerbar enemy hidden" id="fa-enemy-info">
+      <div class="fa-board-playerbar-name" id="fa-enemy-name">Opponent</div>
+      <div class="fa-board-playerbar-stars" id="fa-enemy-info-stars">★ 0</div>
+    </div>
+
+    <canvas id="fa-board" width="${CANVAS_S}" height="${CANVAS_S}"></canvas>
+
+    <div class="fa-board-playerbar self hidden" id="fa-self-info">
+      <div class="fa-board-playerbar-name" id="fa-self-name">You</div>
+      <div class="fa-board-playerbar-stars" id="fa-self-info-stars">★ 0</div>
+    </div>
+
+    <div class="fa-countdown hidden" id="fa-countdown-overlay">
+      <div class="fa-countdown-num" id="fa-countdown-text">3</div>
+    </div>
+
+    <div class="fa-place-action hidden" id="fa-place-action">
+      <button class="fa-place-btn" id="fa-place-btn">Place Stone</button>
+    </div>
+
+    <div class="fa-win-burst hidden" id="fa-win-burst" aria-hidden="true"></div>
+  </div>
+
+  <div class="fa-game-footer">
+    <div class="fa-game-rank-bar">
+      <span id="fa-progress-rank">1 Grade</span>
+      <div class="fa-progress-bar-track"><div class="fa-progress-bar-fill" id="fa-progress-fill"></div></div>
+      <span id="fa-progress-text">0 / 5 pts</span>
+    </div>
+    <div class="fa-game-controls">
+      <button class="fa-ctrl-btn" id="fa-newgame-btn">New Match</button>
+      <button class="fa-ctrl-btn" id="fa-pause-btn">Pause</button>
+      <button class="fa-ctrl-btn danger hidden" id="fa-surrender-btn">Surrender</button>
+      <button class="fa-ctrl-btn ghost" id="fa-floating-fullscreen">Fullscreen</button>
+      <button class="fa-ctrl-btn ghost hidden" id="fa-floating-exit-fullscreen">Exit FS</button>
+      <button class="fa-ctrl-btn danger hidden" id="fa-floating-surrender">Surrender</button>
+    </div>
+  </div>
+
+  <!-- Pause overlay -->
+  <div class="fa-fullscreen-overlay hidden" id="fa-pause-screen">
+    <div class="fa-fs-card compact">
+      <div class="fa-fs-eyebrow">PAUSED</div>
+      <div class="fa-fs-title" id="fa-pause-title">Game Paused</div>
+      <div class="fa-fs-text" id="fa-pause-text">Take a breather. Board is saved.</div>
+      <div class="fa-fs-actions">
+        <button class="fa-cta-btn" id="fa-resume-btn">Resume</button>
+        <button class="fa-cta-btn ghost" id="fa-back-lobby-btn">Back to Home</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating game actions for mobile fullscreen -->
+  <div class="fa-floating-game-actions hidden" id="fa-floating-game-actions">
+    <button class="fa-float-btn danger hidden" id="fa-float-surrender-inner">Surrender</button>
+    <button class="fa-float-btn" id="fa-float-fullscreen-inner">⛶ Fullscreen</button>
+    <button class="fa-float-btn hidden" id="fa-float-exit-inner">✕ Exit FS</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN: RESULT  (fa-screen-result)
+═══════════════════════════════════════════════ -->
+<div class="fa-screen" id="fa-screen-result">
+  <div class="fa-result-bg" id="fa-result-bg"></div>
+  <div class="fa-result-content">
+    <div class="fa-result-icon" id="fa-result-icon">🏆</div>
+    <div class="fa-result-title" id="fa-overlay-title">Victory!</div>
+    <div class="fa-result-stars hidden" id="fa-overlay-stars">+★ 850</div>
+    <div class="fa-result-text" id="fa-overlay-text"></div>
+
+    <div class="fa-result-stats">
+      <div class="fa-rs-item"><span id="fa-rs-wins">0</span><label>Wins</label></div>
+      <div class="fa-rs-div"></div>
+      <div class="fa-rs-item"><span id="fa-rs-streak">0</span><label>Streak</label></div>
+      <div class="fa-rs-div"></div>
+      <div class="fa-rs-item"><span id="fa-rs-rank">1 Grade</span><label>Rank</label></div>
+    </div>
+
+    <div class="fa-result-rank-bar">
+      <div class="fa-rrb-label">
+        <span id="fa-result-rank-label">1 Grade</span>
+        <span id="fa-result-rank-pts">0 / 5</span>
+      </div>
+      <div class="fa-progress-bar-track"><div class="fa-progress-bar-fill" id="fa-result-rank-fill"></div></div>
+    </div>
+
+    <div class="fa-result-actions">
+      <button class="fa-cta-btn" id="fa-rematch-btn">Play Again</button>
+      <button class="fa-cta-btn ghost" id="fa-overlay-lobby-btn">Go Home</button>
+      <button class="fa-cta-btn ghost hidden" id="fa-overlay-confirm-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MODALS (always on top)
+═══════════════════════════════════════════════ -->
+<div class="fa-modal hidden" id="fa-leaderboard-modal">
+  <div class="fa-modal-card">
+    <div class="fa-modal-head">
+      <div>
+        <div class="fa-modal-title">Leaderboard</div>
+        <div class="fa-modal-sub">Ranked by wins · fewer losses breaks ties</div>
+      </div>
+      <button class="fa-icon-btn" id="fa-close-leaderboard">✕</button>
+    </div>
+    <div class="fa-leader-tabs">
+      <button class="fa-tab-chip active" id="fa-leader-tab-total">Total</button>
+      <button class="fa-tab-chip" id="fa-leader-tab-weekly">Weekly Top 7</button>
+      <button class="fa-tab-chip" id="fa-leader-tab-previous">Previous Week</button>
+    </div>
+    <div class="fa-modal-body" id="fa-leaderboard-list"></div>
+  </div>
+</div>
+
+<div class="fa-modal hidden" id="fa-confirm-modal">
+  <div class="fa-confirm-card">
+    <div class="fa-confirm-icon">◆</div>
+    <div class="fa-confirm-title" id="fa-confirm-title">Confirm</div>
+    <div class="fa-confirm-text" id="fa-confirm-text"></div>
+    <div class="fa-confirm-progress hidden" id="fa-confirm-progress"><div id="fa-confirm-progress-fill"></div></div>
+    <div class="fa-confirm-actions">
+      <button class="fa-cta-btn ghost" id="fa-confirm-cancel">Cancel</button>
+      <button class="fa-cta-btn" id="fa-confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar leaderboard preview (used on game screen desktop) -->
+<div class="fa-leader-sidebar hidden" id="fa-leader-sidebar">
+  <div class="fa-leader-scroll" id="fa-leader-preview"></div>
+</div>
     `;
 
+    /* ── STYLE ─────────────────────────────────────────────── */
     const style = document.createElement('style');
     style.textContent = `
       :root {
-        --glass: rgba(255,255,255,.06);
-        --line: rgba(255,255,255,.1);
-        --muted: rgba(233,239,249,.68);
-        --gold: #d5b26c;
+        --bg:    #1a0f07;
+        --bg2:   #231508;
+        --bg3:   #2e1c0e;
+        --card:  rgba(255,248,238,.055);
+        --line:  rgba(255,255,255,.09);
+        --gold:  #d5b26c;
         --gold2: #f1d598;
         --green: #8dcf65;
-        --danger: #ff846d;
-        --shadow: 0 24px 70px rgba(0,0,0,.46);
+        --danger:#ff846d;
+        --muted: rgba(233,212,185,.62);
+        --shadow:0 24px 70px rgba(0,0,0,.5);
+        --radius-sm: 12px;
+        --radius-md: 18px;
+        --radius-lg: 26px;
+        --safe-top: max(14px, env(safe-area-inset-top));
+        --safe-bot: max(14px, env(safe-area-inset-bottom));
       }
-      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-      .hidden { display: none !important; }
-      html, body { min-height: 100%; }
-      .fa-wrap { min-height: 100vh; position: relative; overflow: hidden; }
-      .fa-bg {
-        position: fixed; inset: 0;
+      * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; margin:0; padding:0; }
+      html, body { height:100%; overflow:hidden; background:var(--bg); }
+      .hidden { display:none !important; }
+      input, button { font-family: inherit; }
+
+      /* ── APP SHELL ──────────────────────────── */
+      #fa-omok-app {
+        position:fixed; inset:0;
+        overflow:hidden;
+        background: linear-gradient(145deg,#3a1f0c,#1a0a04 50%,#0f0804);
+      }
+
+      /* ── SCREENS ────────────────────────────── */
+      .fa-screen {
+        position:absolute; inset:0;
+        display:flex; flex-direction:column;
+        overflow:hidden;
+        transform:translateX(100%);
+        transition:transform .32s cubic-bezier(.4,0,.2,1);
+        will-change:transform;
+      }
+      .fa-screen.active  { transform:translateX(0); }
+      .fa-screen.exiting { transform:translateX(-30%); }
+
+      /* ── NAV BAR ────────────────────────────── */
+      .fa-screen-nav-bar {
+        display:flex; align-items:center; justify-content:space-between;
+        padding: var(--safe-top) 18px 12px;
+        background: rgba(26,10,4,.72);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(12px);
+        flex-shrink:0; z-index:2;
+      }
+      .fa-screen-title { font-size:17px; font-weight:800; letter-spacing:.02em; }
+      .fa-back-btn {
+        appearance:none; border:none; background:none; color:var(--gold2);
+        font-size:17px; font-weight:700; cursor:pointer; padding:4px 0; min-width:56px;
+      }
+
+      /* ══════════════════════════════════════════
+         HOME SCREEN
+      ══════════════════════════════════════════ */
+      #fa-screen-home {
+        background: linear-gradient(165deg, #2e1a0a 0%, #18090300 100%);
+      }
+      .fa-home-bg {
+        position:absolute; inset:0; pointer-events:none;
         background:
-          radial-gradient(circle at 18% 14%, rgba(255,224,165,.24), transparent 24%),
-          radial-gradient(circle at 84% 12%, rgba(188,130,58,.18), transparent 24%),
-          radial-gradient(circle at 82% 86%, rgba(120,76,32,.18), transparent 22%),
-          radial-gradient(circle at 50% -4%, rgba(255,255,255,.06), transparent 24%),
-          linear-gradient(180deg, rgba(61,39,19,.18), rgba(61,39,19,.18)),
-          repeating-linear-gradient(
-            90deg,
-            rgba(255,255,255,.018) 0px,
-            rgba(255,255,255,.018) 2px,
-            rgba(0,0,0,.03) 2px,
-            rgba(0,0,0,.03) 6px,
-            rgba(255,255,255,.01) 6px,
-            rgba(255,255,255,.01) 14px
-          ),
-          linear-gradient(135deg, #5c3b20 0%, #3f2816 42%, #26170d 100%);
-        background-attachment: fixed;
-        z-index: 0;
+          radial-gradient(circle at 20% 12%, rgba(255,216,140,.13), transparent 30%),
+          radial-gradient(circle at 82% 80%, rgba(100,55,18,.22), transparent 30%),
+          repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0,rgba(255,255,255,.012) 1px,transparent 1px,transparent 40px),
+          repeating-linear-gradient(rgba(255,255,255,.009) 0,rgba(255,255,255,.009) 1px,transparent 1px,transparent 40px);
       }
-      .fa-grid {
-        position: fixed; inset: 0; pointer-events: none;
-        background:
-          radial-gradient(circle at 20% 18%, rgba(255,248,231,.06), transparent 10%),
-          radial-gradient(circle at 80% 22%, rgba(255,240,212,.05), transparent 12%),
-          linear-gradient(rgba(255,255,255,.014) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px);
-        background-size: auto, auto, 34px 34px, 34px 34px;
-        mask-image: radial-gradient(circle at center, rgba(0,0,0,.68), transparent 88%);
-        opacity: .7;
-        z-index: 0;
+      .fa-home-content {
+        position:relative; z-index:1;
+        display:flex; flex-direction:column;
+        height:100%; padding: var(--safe-top) 0 0;
+        overflow-y:auto;
       }
-      .fa-topbar, .fa-main { position: relative; z-index: 1; }
-      .fa-topbar {
-        max-width: 1440px; margin: 0 auto; padding: 18px 22px 10px;
-        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      .fa-home-top {
+        display:flex; align-items:center; justify-content:space-between;
+        padding: 10px 20px 18px;
+        flex-shrink:0;
       }
-      .fa-top-wallet-row {
-        max-width: 1440px; margin: 0 auto; padding: 0 22px 12px; min-height: 0;
+      .fa-app-logo { display:flex; align-items:center; gap:12px; }
+      .fa-logo-badge {
+        width:46px; height:46px; border-radius:14px;
+        background:linear-gradient(145deg,rgba(244,210,138,.98),rgba(150,110,45,.98));
+        color:#101316; font-weight:900; font-size:16px; letter-spacing:.06em;
+        display:grid; place-items:center;
+        box-shadow: 0 8px 22px rgba(213,178,108,.3), inset 0 1px 2px rgba(255,255,255,.5);
       }
-      .fa-ranking-scene { max-height: calc(100svh - 190px); overflow-y: auto; overflow-x: hidden; }
-      .fa-ranking-scene .fa-panel { min-height: 100%; }
-      .fa-scene-nav-wrap {
-        max-width: 1440px; margin: 0 auto; padding: 0 22px 14px;
-        position: relative; z-index: 1;
+      .fa-logo-title { font-size:20px; font-weight:900; letter-spacing:.05em; }
+      .fa-logo-sub { font-size:11px; color:var(--muted); letter-spacing:.18em; text-transform:uppercase; margin-top:2px; }
+      .fa-icon-btn {
+        appearance:none; border:1px solid var(--line); background:var(--card);
+        color:var(--gold2); border-radius:12px; width:40px; height:40px;
+        display:grid; place-items:center; cursor:pointer;
+        transition:.18s; flex-shrink:0;
       }
-      .fa-scene-nav {
-        display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;
-      }
-      .fa-scene-head {
-        display:flex; align-items:center; justify-content:space-between; gap:14px;
-        padding:14px 18px; border-radius:22px;
-        background: linear-gradient(180deg, rgba(97,63,31,.28), rgba(52,32,17,.22));
-        border:1px solid rgba(255,255,255,.08); box-shadow: var(--shadow);
-      }
-      .fa-scene-title { font-size: 22px; font-weight: 900; }
-      .fa-scene-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
-      .fa-home-scene, .fa-ranking-scene { position: relative; z-index:1; }
-      .fa-top-wallet-row { display:none; }
-      body.fa-route-home .fa-top-wallet-row, body.fa-route-ranking .fa-top-wallet-row { display:block; }
-      .fa-home-hero {
-        display:grid; grid-template-columns: minmax(0,1.2fr) minmax(320px,.8fr); gap:18px;
-      }
-      .fa-home-hero-copy, .fa-home-hero-side {
-        padding:22px; border-radius:26px; background: linear-gradient(180deg, rgba(97,63,31,.34), rgba(52,32,17,.28));
-        border:1px solid rgba(255,255,255,.08); box-shadow: var(--shadow);
-      }
-      .fa-home-profile { display:flex; gap:14px; align-items:center; margin-bottom:16px; }
-      .fa-home-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-      .fa-scene-stat { padding:16px; border-radius:18px; background: rgba(255,245,232,.05); border:1px solid rgba(255,237,206,.08); }
-      .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
-      .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
-      body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
-      body.fa-needs-profile.fa-route-home .fa-main { display:grid !important; }
-      body.fa-needs-profile.fa-route-home .fa-home-scene { display:block !important; }
-      body.fa-route-home #fa-home-scene { display:block !important; }
-      body.fa-route-ranking #fa-ranking-scene { display:block !important; }
-      body.fa-route-ai .fa-right,
-      body.fa-route-online .fa-right,
-      body.fa-route-create-room .fa-right,
-      body.fa-route-friend-match .fa-right,
-      body.fa-route-friends .fa-right,
-      body.fa-route-room .fa-right { display:none !important; }
-      body.fa-route-ai .fa-bottom,
-      body.fa-route-online .fa-bottom,
-      body.fa-route-create-room .fa-bottom,
-      body.fa-route-friend-match .fa-bottom,
-      body.fa-route-friends .fa-bottom,
-      body.fa-route-room .fa-bottom { display:none !important; }
-      body.fa-route-ai #fa-board,
-      body.fa-route-online #fa-board,
-      body.fa-route-create-room #fa-board,
-      body.fa-route-friend-match #fa-board,
-      body.fa-route-friends #fa-board,
-      body.fa-route-room #fa-board { display:none !important; }
-      body.fa-route-ai .fa-board-playerbar,
-      body.fa-route-online .fa-board-playerbar,
-      body.fa-route-create-room .fa-board-playerbar,
-      body.fa-route-friend-match .fa-board-playerbar,
-      body.fa-route-friends .fa-board-playerbar,
-      body.fa-route-room .fa-board-playerbar { display:none !important; }
-      body.fa-route-ai .fa-board-wrap,
-      body.fa-route-online .fa-board-wrap,
-      body.fa-route-create-room .fa-board-wrap,
-      body.fa-route-friend-match .fa-board-wrap,
-      body.fa-route-friends .fa-board-wrap,
-      body.fa-route-room .fa-board-wrap { min-height: 560px; }
-      body.fa-route-ai #fa-start-screen,
-      body.fa-route-online #fa-start-screen,
-      body.fa-route-create-room #fa-start-screen,
-      body.fa-route-friend-match #fa-start-screen,
-      body.fa-route-friends #fa-start-screen,
-      body.fa-route-room #fa-start-screen { display:grid !important; position:absolute; inset:0; }
-      body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 640px); }
-      body.fa-route-ai .fa-board-wrap,
-      body.fa-route-online .fa-board-wrap,
-      body.fa-route-create-room .fa-board-wrap,
-      body.fa-route-friend-match .fa-board-wrap,
-      body.fa-route-friends .fa-board-wrap,
-      body.fa-route-room .fa-board-wrap {
-        padding: 0;
-        background: transparent;
-        box-shadow: none;
-        min-height: auto;
-      }
-      body.fa-route-ai #fa-start-screen,
-      body.fa-route-online #fa-start-screen,
-      body.fa-route-create-room #fa-start-screen,
-      body.fa-route-friend-match #fa-start-screen,
-      body.fa-route-friends #fa-start-screen,
-      body.fa-route-room #fa-start-screen {
-        position: relative;
-        inset: auto;
-        padding: 0;
-        background: transparent;
-        display: block !important;
-      }
-      body.fa-route-ai .fa-stage-card.lobby,
-      body.fa-route-online .fa-stage-card.lobby,
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby {
-        width: 100%;
-        max-width: 100%;
-        min-height: calc(100vh - 240px);
-        border-radius: 28px;
-        padding: 24px;
-      }
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby {
-        text-align: left;
-      }
-      body.fa-route-create-room .fa-stage-title,
-      body.fa-route-friend-match .fa-stage-title,
-      body.fa-route-friends .fa-stage-title,
-      body.fa-route-room .fa-stage-title {
-        font-size: 26px;
-      }
-      body.fa-route-create-room .fa-stage-actions,
-      body.fa-route-friend-match .fa-stage-actions,
-      body.fa-route-friends .fa-stage-actions,
-      body.fa-route-room .fa-stage-actions {
-        justify-content: flex-start;
-      }
-      body.fa-route-create-room .fa-lobby-text,
-      body.fa-route-friend-match .fa-lobby-text,
-      body.fa-route-friends .fa-lobby-text,
-      body.fa-route-room .fa-lobby-text {
-        max-width: 760px;
-      }
-      body.fa-route-create-room .fa-start-profile,
-      body.fa-route-friend-match .fa-start-profile,
-      body.fa-route-friends .fa-start-profile,
-      body.fa-route-room .fa-start-profile {
-        display: none !important;
-      }
-      body.fa-route-online .fa-stage-card.lobby,
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby,
-      body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 100%); }
-      body.fa-route-ai #fa-pause-screen,
-      body.fa-route-ai #fa-overlay,
-      body.fa-route-online #fa-pause-screen,
-      body.fa-route-online #fa-overlay,
-      body.fa-route-create-room #fa-pause-screen,
-      body.fa-route-create-room #fa-overlay,
-      body.fa-route-friend-match #fa-pause-screen,
-      body.fa-route-friend-match #fa-overlay,
-      body.fa-route-friends #fa-pause-screen,
-      body.fa-route-friends #fa-overlay,
-      body.fa-route-room #fa-pause-screen,
-      body.fa-route-room #fa-overlay { display:none !important; }
+      .fa-icon-btn:hover { background:rgba(255,255,255,.08); }
 
-      body.fa-route-online .fa-status-row,
-      body.fa-route-create-room .fa-status-row,
-      body.fa-route-friend-match .fa-status-row,
-      body.fa-route-friends .fa-status-row,
-      body.fa-route-room .fa-status-row { display:none !important; }
+      .fa-home-profile {
+        display:flex; align-items:center; gap:14px;
+        margin:0 18px 20px;
+        padding:16px 18px; border-radius:var(--radius-md);
+        background:var(--card); border:1px solid var(--line);
+        flex-shrink:0;
+      }
+      .fa-home-profile-meta { flex:1; min-width:0; }
+      .fa-home-name { font-size:18px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .fa-home-rank-badge {
+        display:inline-block; margin-top:5px; padding:4px 10px;
+        border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.05em;
+        background:rgba(213,178,108,.15); color:var(--gold2); border:1px solid rgba(213,178,108,.22);
+      }
+      .fa-home-stars {
+        display:flex; align-items:center; gap:5px;
+        font-size:16px; font-weight:900; color:#ffe9b2;
+        background:rgba(255,224,120,.1); border:1px solid rgba(255,224,120,.18);
+        padding:8px 12px; border-radius:var(--radius-sm);
+        white-space:nowrap;
+      }
+      .fa-star-pip { color:#ffd060; font-size:14px; }
+      .fa-star-pip.large { font-size:22px; }
 
-      body.fa-route-online .fa-stage-card.lobby,
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby { margin-top: 0; }
+      .fa-home-stats-row {
+        display:flex; align-items:center; justify-content:center;
+        gap:0; margin:0 18px 20px;
+        padding:14px 18px; border-radius:var(--radius-md);
+        background:var(--card); border:1px solid var(--line);
+        flex-shrink:0;
+      }
+      .fa-home-stat { flex:1; text-align:center; }
+      .fa-home-stat span { display:block; font-size:22px; font-weight:900; color:#fff3e0; }
+      .fa-home-stat label { display:block; font-size:12px; color:var(--muted); margin-top:3px; }
+      .fa-home-stat-div { width:1px; height:32px; background:var(--line); flex-shrink:0; }
 
-      body.fa-route-ai .fa-mode-switch,
-      body.fa-route-online .fa-mode-switch,
-      body.fa-route-create-room .fa-mode-switch,
-      body.fa-route-friend-match .fa-mode-switch,
-      body.fa-route-friends .fa-mode-switch,
-      body.fa-route-room .fa-mode-switch,
-      body.fa-route-online .fa-lobby-result,
-      body.fa-route-create-room .fa-lobby-result,
-      body.fa-route-friend-match .fa-lobby-result,
-      body.fa-route-friends .fa-lobby-result,
-      body.fa-route-room .fa-lobby-result { display:none !important; }
-      @media (max-width: 900px) {
-        .fa-home-hero { grid-template-columns: 1fr; }
+      .fa-home-rank-progress {
+        margin:0 18px 24px; flex-shrink:0;
       }
-      .top-wallet-panel { padding: 16px 18px; }
-      .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
-      .fa-top-actions { display: flex; gap: 10px; align-items:center; }
-      .fa-top-starbox {
-        display:flex; align-items:center; gap:10px; padding:10px 14px;
-        border-radius:18px; min-width:132px;
-        background: linear-gradient(180deg, rgba(255,246,222,.14), rgba(255,246,222,.06));
-        border:1px solid rgba(255,227,160,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      .fa-hrp-label {
+        display:flex; justify-content:space-between;
+        font-size:13px; color:var(--muted); margin-bottom:8px;
       }
-      .fa-top-star-icon {
-        display:inline-grid; place-items:center; width:28px; height:28px; border-radius:10px;
-        background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
-        color:#1f160a; font-size:16px; box-shadow: 0 8px 18px rgba(255,205,74,.22), inset 0 1px 1px rgba(255,255,255,.6);
+      .fa-hrp-bar {
+        height:10px; border-radius:999px; overflow:hidden;
+        background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.07);
       }
-      .fa-top-star-meta { display:flex; flex-direction:column; min-width:0; }
-      .fa-top-star-label { font-size:11px; color: var(--muted); text-transform:uppercase; letter-spacing:.12em; }
-      #fa-top-stars { font-size:18px; color:#fff8e8; letter-spacing:.02em; }
-      .top-wallet-panel { display:none !important; }
-      body:not(.fa-route-home):not(.fa-route-ranking) .fa-top-wallet-row { display:none !important; }
-      .fa-brand { display: flex; align-items: center; gap: 14px; }
-            .fa-brand-badge {
-        width: 52px; height: 52px; border-radius: 16px;
-        display: grid; place-items: center;
-        background: linear-gradient(145deg, rgba(244,210,138,.95), rgba(166,128,59,.95));
-        color: #101114; font-weight: 900; letter-spacing: .06em;
-        box-shadow: 0 12px 28px rgba(213,178,108,.35), inset 0 1px 2px rgba(255,255,255,.55);
+      .fa-hrp-fill {
+        height:100%; width:0%;
+        background:linear-gradient(90deg,#7bd46a,#d9c07f);
+        border-radius:999px; transition:width .4s ease;
       }
-      .fa-brand-title { font-size: 22px; font-weight: 900; letter-spacing: .05em; }
-      .fa-brand-sub { font-size: 12px; color: var(--muted); letter-spacing: .18em; text-transform: uppercase; }
-      .fa-mode-switch { display:flex; gap:10px; margin: 14px 0 12px; }
-      .fa-chip { border:1px solid rgba(255,238,205,.18); background: rgba(255,248,235,.06); color:#fff6e6; border-radius:999px; padding:10px 14px; font-weight:800; cursor:pointer; }
-      .fa-chip.active { background: linear-gradient(180deg, rgba(228,193,126,.28), rgba(177,126,58,.24)); box-shadow: inset 0 0 0 1px rgba(255,228,167,.18); }
-      .fa-friend-panel { margin: 4px 0 14px; padding: 14px; border-radius: 18px; border:1px solid rgba(255,236,205,.12); background: rgba(255,246,229,.05); }
-      .fa-friend-top { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
-      .fa-room-code { font-weight:900; letter-spacing:.08em; color:#ffe7b4; }
-      .fa-room-status { color: var(--muted); font-size: 13px; }
-      .fa-room-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,270px) repeat(3, auto); gap:10px; }
-      .fa-room-actions input { min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
-      .fa-room-actions input::placeholder { color: rgba(255,248,239,.48); }
+
+      .fa-home-actions {
+        display:flex; flex-direction:column; gap:12px;
+        margin:0 18px 20px; flex-shrink:0;
+      }
+      .fa-main-btn {
+        display:flex; align-items:center; gap:14px;
+        padding:16px 18px; border-radius:var(--radius-md);
+        border:1px solid var(--line); background:var(--card);
+        color:#fff8ef; cursor:pointer; transition:.2s;
+        text-align:left; width:100%;
+        appearance:none;
+      }
+      .fa-main-btn:hover { background:rgba(255,255,255,.08); transform:translateY(-1px); }
+      .fa-main-btn:active { transform:scale(.98); }
+      .fa-main-btn.primary {
+        background:linear-gradient(145deg,rgba(214,180,109,.22),rgba(100,70,24,.2));
+        border-color:rgba(255,220,150,.22);
+      }
+      .fa-main-btn-icon {
+        width:40px; height:40px; border-radius:12px; flex-shrink:0;
+        display:grid; place-items:center;
+        background:rgba(255,255,255,.08); color:var(--gold2);
+      }
+      .fa-main-btn.primary .fa-main-btn-icon { background:rgba(213,178,108,.2); }
+      .fa-main-btn-label { flex:1; min-width:0; }
+      .fa-main-btn-title { display:block; font-size:16px; font-weight:800; }
+      .fa-main-btn-sub { display:block; font-size:12px; color:var(--muted); margin-top:3px; }
+      .fa-main-btn-arrow { font-size:22px; color:var(--muted); flex-shrink:0; }
+
+      .fa-home-bottom-nav {
+        display:flex; justify-content:space-around; align-items:center;
+        padding:10px 0 calc(10px + var(--safe-bot));
+        background:rgba(18,8,2,.85); border-top:1px solid var(--line);
+        backdrop-filter:blur(14px);
+        margin-top:auto; flex-shrink:0;
+      }
+      .fa-nav-btn {
+        display:flex; flex-direction:column; align-items:center; gap:4px;
+        background:none; border:none; color:var(--muted); cursor:pointer;
+        font-size:11px; font-weight:700; padding:6px 24px;
+        transition:.18s;
+      }
+      .fa-nav-btn.active { color:var(--gold2); }
+      .fa-nav-btn svg { flex-shrink:0; }
+
+      /* ══════════════════════════════════════════
+         SETUP / PROFILE SCREEN
+      ══════════════════════════════════════════ */
+      #fa-screen-setup { background:var(--bg); }
+      .fa-setup-body {
+        flex:1; overflow-y:auto;
+        padding:28px 24px calc(24px + var(--safe-bot));
+        display:flex; flex-direction:column; gap:16px;
+      }
+      .fa-field-label {
+        display:block; font-size:12px; text-transform:uppercase;
+        letter-spacing:.15em; color:var(--muted); margin-bottom:8px; font-weight:700;
+      }
+      .fa-text-input {
+        width:100%; height:52px; border-radius:var(--radius-sm); padding:0 16px;
+        border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.05);
+        color:#f4f7ff; font-size:15px; outline:none;
+        transition:.18s;
+      }
+      .fa-text-input.small { height:44px; font-size:14px; }
+      .fa-text-input:focus { border-color:rgba(213,178,108,.4); background:rgba(255,255,255,.07); }
+      .fa-text-input::placeholder { color:rgba(255,248,239,.4); }
+      .fa-field-note { font-size:13px; color:var(--muted); margin-top:8px; line-height:1.5; }
+      .fa-fixed-profile {
+        padding:14px 16px; border-radius:var(--radius-sm);
+        border:1px solid var(--line); background:var(--card);
+      }
+      .fa-fixed-name { font-size:18px; font-weight:900; color:#f4f7ff; margin-top:4px; }
+
+      .fa-cta-btn {
+        width:100%; padding:15px 20px; border-radius:var(--radius-sm);
+        appearance:none; cursor:pointer; font-weight:800; font-size:15px;
+        border:1px solid rgba(255,230,181,.36);
+        background:linear-gradient(145deg,rgba(214,180,109,.98),rgba(126,98,43,.98));
+        color:#121316; transition:.2s;
+        display:flex; align-items:center; justify-content:center; gap:8px;
+      }
+      .fa-cta-btn:hover { transform:translateY(-1px); filter:brightness(1.06); }
+      .fa-cta-btn:active { transform:scale(.97); }
+      .fa-cta-btn.ghost {
+        background:rgba(255,255,255,.06); color:#fff8ef;
+        border-color:rgba(255,255,255,.12);
+      }
+      .fa-cta-btn.outline {
+        background:transparent; color:var(--gold2);
+        border-color:rgba(213,178,108,.35);
+      }
+      .fa-mobile-only { display:none; }
+      @media (max-width:740px) { .fa-mobile-only { display:flex !important; } }
+
+      /* ══════════════════════════════════════════
+         LOBBY SCREEN
+      ══════════════════════════════════════════ */
+      #fa-screen-lobby { background:var(--bg); }
+      .fa-lobby-body {
+        flex:1; overflow-y:auto; padding:20px 18px calc(20px + var(--safe-bot));
+        display:flex; flex-direction:column; gap:14px;
+      }
+      .fa-lobby-wallet {
+        display:flex; align-items:center; gap:10px;
+        padding:14px 18px; border-radius:var(--radius-md);
+        background:linear-gradient(145deg,rgba(255,228,120,.12),rgba(100,65,18,.1));
+        border:1px solid rgba(255,220,120,.18);
+      }
+      .fa-lobby-stars { font-size:26px; font-weight:900; color:#ffe9b2; }
+      .fa-lobby-stars-label { font-size:13px; color:var(--muted); margin-left:2px; }
+      .fa-lobby-result {
+        padding:14px 16px; border-radius:var(--radius-md);
+        background:var(--card); border:1px solid var(--line);
+      }
+      .fa-lr-title { font-size:11px; text-transform:uppercase; letter-spacing:.18em; color:var(--gold2); font-weight:900; }
+      .fa-lr-text { font-size:13px; color:#f1f4fb; margin-top:6px; line-height:1.55; }
+      .fa-lobby-status-card {
+        padding:14px 16px; border-radius:var(--radius-md);
+        background:var(--card); border:1px solid var(--line);
+      }
+      .fa-room-code-view { font-size:14px; font-weight:900; color:#ffe7b4; letter-spacing:.05em; }
+      .fa-room-status-text { font-size:13px; color:var(--muted); margin-top:5px; line-height:1.55; }
+
+      .fa-room-presence {
+        padding:14px 16px; border-radius:var(--radius-md);
+        border:1px solid rgba(255,235,202,.12);
+        background:linear-gradient(145deg,rgba(108,68,30,.3),rgba(50,28,12,.24));
+      }
+      .fa-room-presence-head { display:flex; justify-content:space-between; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+      .fa-room-presence-badge {
+        display:inline-flex; align-items:center; padding:5px 10px;
+        border-radius:999px; font-size:11px; font-weight:900; letter-spacing:.1em;
+        color:#fff2cf; background:rgba(255,228,167,.1); border:1px solid rgba(255,228,167,.2);
+      }
+      .fa-room-presence-note { font-size:12px; color:var(--muted); }
+      .fa-room-presence-slots { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+      .fa-room-slot {
+        padding:12px 14px; border-radius:var(--radius-sm);
+        background:rgba(255,255,255,.04); border:1px solid var(--line);
+        display:flex; align-items:center; gap:10px;
+        transition:.2s;
+      }
+      .fa-room-slot.filled { border-color:rgba(213,178,108,.28); background:rgba(213,178,108,.06); }
+      .fa-room-slot-avatar { font-size:20px; flex-shrink:0; }
+      .fa-room-slot-role { font-size:11px; color:var(--muted); letter-spacing:.08em; }
+      .fa-room-slot-name { font-size:13px; font-weight:800; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+      .fa-friend-panel { display:flex; flex-direction:column; gap:14px; }
+      .fa-fp-section { display:flex; flex-direction:column; gap:10px; }
+      .fa-fp-label { font-size:13px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.12em; }
+      .fa-fp-row { display:flex; gap:10px; flex-wrap:wrap; }
+      .fa-fp-row .fa-cta-btn { flex:1; min-width:140px; }
+      .fa-fp-divider { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px; }
+      .fa-fp-divider::before, .fa-fp-divider::after { content:''; flex:1; height:1px; background:var(--line); }
+
       .fa-room-stake-pills {
-        display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px;
-        padding: 8px;
-        border-radius:18px;
-        background: linear-gradient(180deg, rgba(255,248,230,.12), rgba(255,234,193,.04));
-        border:1px solid rgba(255,226,154,.18);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 22px rgba(0,0,0,.10);
+        display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+        padding:8px; border-radius:var(--radius-sm);
+        background:rgba(255,248,230,.06); border:1px solid rgba(255,226,154,.14);
       }
       .fa-stake-pill {
         appearance:none; border:1px solid rgba(255,255,255,.08); outline:none; cursor:pointer;
-        border-radius:14px; padding:12px 10px; min-width:0;
-        background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
-        color:#f6ead1; font-weight:900; letter-spacing:.01em;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
-        transition:.18s ease;
+        border-radius:10px; padding:10px 6px; background:rgba(255,255,255,.06);
+        color:#f6ead1; font-weight:900; font-size:13px; transition:.18s;
       }
-      .fa-stake-pill:hover { transform: translateY(-1px); background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.04)); }
+      .fa-stake-pill:hover { background:rgba(255,255,255,.1); }
       .fa-stake-pill.active {
-        background: linear-gradient(180deg, rgba(230,194,125,.30), rgba(150,107,47,.22));
-        border-color: rgba(255,226,154,.32);
-        color:#fff7e1;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 10px 20px rgba(0,0,0,.12);
+        background:linear-gradient(145deg,rgba(230,194,125,.28),rgba(130,90,30,.2));
+        border-color:rgba(255,226,154,.3); color:#fff7e1;
       }
-      .fa-room-actions.room-locked { grid-template-columns: 1fr; }
-      .fa-room-actions.room-locked .fa-btn { width: 100%; }
-      #fa-mode-create-room { display:inline-flex; }
-      .fa-room-presence {
-        margin-top: 12px; padding: 14px; border-radius: 18px;
-        border: 1px solid rgba(255,235,202,.12);
-        background:
-          linear-gradient(180deg, rgba(255,247,231,.10), rgba(255,247,231,.04)),
-          linear-gradient(135deg, rgba(108,68,30,.38), rgba(63,36,17,.28));
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 16px 34px rgba(28,13,3,.14);
-      }
-      .fa-room-presence-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 12px; }
-      .fa-room-presence-badge {
-        display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px;
-        font-size:12px; font-weight:900; letter-spacing:.10em; text-transform:uppercase;
-        color:#fff2cf; background: rgba(255,228,167,.10); border:1px solid rgba(255,228,167,.20);
-      }
-      .fa-room-presence-note { color: var(--muted); font-size: 12px; }
-      .fa-room-presence-slots { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-      .fa-room-slot {
-        display:flex; align-items:center; gap:12px; min-width:0; padding:12px; border-radius:18px;
-        background: rgba(255,250,242,.05); border:1px solid rgba(255,240,214,.08);
-        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
-      }
-      .fa-room-slot.filled {
-        background: linear-gradient(180deg, rgba(255,248,235,.12), rgba(255,248,235,.05));
-        border-color: rgba(255,228,167,.18);
-        box-shadow: 0 12px 28px rgba(26,12,3,.14);
-      }
-      .fa-room-slot.pulse {
-        animation: faRoomPulse 1.2s ease;
-      }
-      .fa-room-slot-avatar {
-        width: 44px; height: 44px; border-radius: 14px; display:grid; place-items:center;
-        background: linear-gradient(145deg, rgba(244,210,138,.92), rgba(140,99,42,.92));
-        color:#18130e; font-size: 20px; font-weight:900; flex:0 0 auto;
-        box-shadow: inset 0 1px 2px rgba(255,255,255,.45), 0 10px 24px rgba(0,0,0,.16);
-      }
-      .fa-room-slot.guest .fa-room-slot-avatar {
-        background: linear-gradient(145deg, rgba(209,220,255,.92), rgba(103,116,180,.92));
-        color:#151825;
-      }
-      .fa-room-slot-meta { min-width:0; }
-      .fa-room-slot-role { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color: var(--muted); font-weight:800; }
-      .fa-room-slot-name { margin-top:4px; font-size:15px; font-weight:900; color:#fff6e6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-      @keyframes faRoomPulse {
-        0% { transform: scale(.98); box-shadow: 0 0 0 rgba(255,228,167,0); }
-        35% { transform: scale(1.02); box-shadow: 0 0 0 10px rgba(255,228,167,.08); }
-        100% { transform: scale(1); box-shadow: 0 0 0 rgba(255,228,167,0); }
-      }
-      
-      .fa-friends-panel { margin-top:12px; border:1px solid rgba(255,255,255,.10); background: rgba(22,10,2,.22); border-radius:18px; padding:12px; overflow:hidden; }
-      #fa-friends-list{
-        display:grid;
-        grid-template-columns:minmax(0,1fr);
-        width:100%;
-        max-width:100%;
-        overflow-x:hidden;
-        justify-items:stretch;
-      }
-      .fa-friend-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(110px,150px) auto; gap:10px; align-items:center; padding:14px; border-radius:20px; min-width:0; width:100%; max-width:100%; flex:none; background: linear-gradient(180deg, rgba(255,247,231,.11), rgba(255,247,231,.05)), linear-gradient(135deg, rgba(118,72,31,.42), rgba(72,41,20,.34) 55%, rgba(48,28,12,.42)); border:1px solid rgba(255,235,202,.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 18px 34px rgba(28,13,3,.18); }
-      .fa-friend-row-meta { min-width:0; }
-      .fa-friend-name { font-weight:900; color:#fff4df; font-size:15px; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-      .fa-friend-rank { color:#f1d598; font-size:12px; font-weight:900; margin-left:4px; }
-      .fa-friend-sub { color: var(--muted); font-size:12px; margin-top:3px; }
-      .fa-friend-stake { width:100%; min-width:0; background: rgba(255,255,255,.06); color:#fff8ef; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px 14px; font-size:14px; }
 
-      .fa-open-rooms { margin-top:12px; border:1px solid rgba(255,255,255,.10); background: rgba(22,10,2,.22); border-radius:18px; padding:12px; overflow:hidden; }
-      .fa-open-rooms-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
-      .fa-open-rooms-title { font-weight:900; color:#ffe7b4; letter-spacing:.04em; }
-            .fa-open-rooms-list { display:flex; flex-wrap:wrap; gap:12px; max-height:260px; overflow:auto; align-items:stretch; padding-bottom:2px; overscroll-behavior: contain; }
-      .fa-open-rooms-list.single-room { justify-content:center; }
-      .fa-open-rooms-list.single-room .fa-room-item { min-width:min(100%, 420px); flex:0 1 420px; }
+      .fa-open-rooms { display:flex; flex-direction:column; gap:10px; }
+      .fa-open-rooms-head { display:flex; justify-content:space-between; align-items:center; }
+      .fa-text-btn { appearance:none; background:none; border:none; color:var(--gold2); font-size:13px; font-weight:700; cursor:pointer; }
+      .fa-open-rooms-list { display:flex; flex-direction:column; gap:8px; max-height:36vh; overflow-y:auto; }
       .fa-room-item {
-        display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; padding:14px;
-        border-radius:20px; min-width:280px; flex:1 1 310px;
-        background:
-          linear-gradient(180deg, rgba(255,247,231,.11), rgba(255,247,231,.05)),
-          linear-gradient(135deg, rgba(118,72,31,.42), rgba(72,41,20,.34) 55%, rgba(48,28,12,.42));
-        border:1px solid rgba(255,235,202,.12);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 18px 34px rgba(28,13,3,.18);
+        display:flex; justify-content:space-between; align-items:center; gap:12px;
+        padding:12px 14px; border-radius:var(--radius-sm);
+        background:var(--card); border:1px solid var(--line);
       }
-      .fa-room-item-title { font-weight:900; color:#fff4df; font-size:15px; letter-spacing:.01em; }
-      .fa-room-item-meta { color: var(--muted); font-size:12px; margin-top:3px; }
-      .fa-room-item-badge { display:inline-flex; align-items:center; gap:6px; margin-top:6px; padding:4px 8px; border-radius:999px; font-size:11px; font-weight:800; letter-spacing:.04em; }
-      .fa-room-item-badge.open { background: rgba(60,180,90,.15); color:#b6ffbf; border:1px solid rgba(60,180,90,.25); }
-      .fa-room-item-badge.locked { background: rgba(255,197,64,.12); color:#ffe39c; border:1px solid rgba(255,197,64,.25); }
-      .fa-room-empty { padding:14px; border-radius:14px; background: rgba(255,255,255,.04); color: var(--muted); text-align:center; }
-      .fa-btn.tiny { padding:8px 12px; font-size:12px; min-height:auto; border-radius:12px; }
-      .fa-btn.ready-active, .fa-btn[aria-pressed="true"] {
-        background: linear-gradient(180deg, rgba(131,96,49,.92), rgba(82,55,25,.95));
-        color:#ffeec9;
-        border-color: rgba(255,224,167,.28);
-        box-shadow: inset 0 2px 10px rgba(0,0,0,.22), 0 0 0 1px rgba(255,234,190,.10);
-        transform: translateY(1px);
+      .fa-room-item-title { font-size:14px; font-weight:800; }
+      .fa-room-item-meta { font-size:12px; color:var(--muted); margin-top:3px; }
+      .fa-room-item-badge {
+        display:inline-block; margin-top:5px; padding:3px 8px;
+        border-radius:999px; font-size:11px; font-weight:800;
       }
+      .fa-room-item-badge.open { background:rgba(141,207,101,.12); color:#a3e36c; border:1px solid rgba(141,207,101,.2); }
+      .fa-room-item-badge.locked { background:rgba(255,184,80,.1); color:#ffd090; border:1px solid rgba(255,184,80,.2); }
+      .fa-room-empty { color:var(--muted); font-size:13px; text-align:center; padding:16px; }
 
-      .fa-main {
-        max-width: 1440px; margin: 0 auto; padding: 8px 22px 28px;
-        display: grid; grid-template-columns: minmax(0, 1.15fr) 380px; gap: 22px;
+      /* ══════════════════════════════════════════
+         GAME SCREEN
+      ══════════════════════════════════════════ */
+      #fa-screen-game {
+        background:var(--bg);
+        display:flex; flex-direction:column;
       }
-      .fa-panel {
-        background: linear-gradient(180deg, rgba(97,63,31,.34), rgba(52,32,17,.28));
-        border: 1px solid var(--line);
-        box-shadow: var(--shadow);
-        border-radius: 26px;
-        backdrop-filter: blur(18px);
+      .fa-game-header {
+        display:flex; align-items:center; justify-content:space-between;
+        padding: var(--safe-top) 14px 10px;
+        background:rgba(18,8,2,.88); border-bottom:1px solid var(--line);
+        backdrop-filter:blur(10px); flex-shrink:0; z-index:2; gap:8px;
       }
-      .hero { padding: 18px; }
-      .setup, .stats, .info, .lb { padding: 18px; }
-      .fa-status-row {
-        display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin-bottom: 16px;
+      .fa-game-player-strip {
+        display:flex; align-items:center; gap:8px; flex:1; min-width:0;
       }
-      .fa-player-card {
-        display: flex; align-items: center; gap: 12px;
-        background: rgba(255,245,232,.06); border: 1px solid rgba(255,237,206,.10); border-radius: 20px; padding: 12px 14px;
+      .fa-game-player-strip.enemy { flex-direction:row; }
+      .fa-game-player-strip.self { flex-direction:row-reverse; }
+      .fa-gps-stone {
+        width:26px; height:26px; border-radius:50%; flex-shrink:0;
+        box-shadow:0 4px 10px rgba(0,0,0,.3);
       }
-      .fa-player-card.ai { justify-content: flex-end; }
-      .fa-player-meta.right { text-align: right; }
-      .fa-avatar {
-        width: 54px; height: 54px; border-radius: 17px;
-        background: linear-gradient(145deg, rgba(255,255,255,.22), rgba(255,255,255,.05));
-        border: 1px solid rgba(255,255,255,.12);
-        position: relative;
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-        color: #101318;
-        font-weight: 900;
-        font-size: 22px;
+      .fa-gps-stone.black { background:radial-gradient(circle at 35% 30%,#4f5661,#06090f); }
+      .fa-gps-stone.white { background:radial-gradient(circle at 35% 30%,#fff,#cfd3d9); border:1px solid rgba(0,0,0,.08); }
+      .fa-gps-meta { min-width:0; }
+      .fa-gps-meta.right { text-align:right; }
+      .fa-gps-name { font-size:13px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .fa-gps-rank { font-size:11px; color:var(--gold2); margin-top:2px; }
+      .fa-gps-stars { font-size:11px; font-weight:800; color:#ffd98a; flex-shrink:0; }
+      .fa-game-center-status { text-align:center; flex-shrink:0; padding:0 8px; }
+      .fa-turn-badge {
+        font-size:14px; font-weight:900; letter-spacing:.02em;
+        padding:5px 12px; border-radius:999px;
+        background:rgba(255,255,255,.06); border:1px solid var(--line);
+        white-space:nowrap;
       }
-      .fa-avatar.large { width: 72px; height: 72px; font-size: 30px; }
-      .fa-avatar.self::before, .fa-avatar.bot::before {
-        content: '';
-        position: absolute; inset: 0;
-        background:
-          radial-gradient(circle at 35% 30%, rgba(255,255,255,.92), rgba(255,255,255,.18) 26%, transparent 27%),
-          linear-gradient(145deg, rgba(236,221,187,.95), rgba(157,174,214,.28));
+      .fa-turn-badge.my-turn { background:rgba(213,178,108,.18); border-color:rgba(213,178,108,.3); color:#fff8d6; }
+      .fa-turn-badge.ai-turn { background:rgba(100,100,120,.18); border-color:rgba(150,150,180,.2); }
+      .fa-streak-label { font-size:11px; color:var(--muted); margin-top:4px; }
+      .fa-turn-timer {
+        display:inline-flex; align-items:center; justify-content:center;
+        margin-top:6px; padding:5px 12px; border-radius:999px;
+        font-size:13px; font-weight:900; color:#fff7e6;
+        background:rgba(120,73,33,.4); border:1px solid rgba(255,228,179,.14);
       }
-      .fa-avatar.bot::before {
-        background:
-          radial-gradient(circle at 35% 30%, rgba(255,255,255,.68), rgba(255,255,255,.12) 26%, transparent 27%),
-          linear-gradient(145deg, rgba(38,42,65,.95), rgba(164,176,206,.52));
-      }
-      .fa-avatar::after {
-        content: attr(data-avatar);
-        position: relative;
-        z-index: 1;
-        filter: drop-shadow(0 6px 10px rgba(0,0,0,.22));
-      }
-      .fa-avatar.self::after, .fa-avatar.bot::after { font-size: 24px; }
-      .fa-avatar.large::after { font-size: 34px; }
-      .fa-name { font-size: 16px; font-weight: 800; }
-      .fa-rank { font-size: 13px; color: var(--gold2); margin-top: 2px; }
-      .fa-center-vs { text-align: center; padding: 0 8px; }
-      .fa-turn { font-weight: 900; font-size: 18px; letter-spacing: .02em; }
-      .fa-streak { font-size: 13px; color: var(--muted); margin-top: 4px; }
-      .fa-turn-timer { margin-top:8px; display:inline-flex; align-items:center; justify-content:center; min-width:112px; padding:8px 12px; border-radius:999px; font-size:13px; font-weight:900; letter-spacing:.04em; color:#fff7e6; background:linear-gradient(180deg, rgba(120,73,33,.42), rgba(73,40,17,.34)); border:1px solid rgba(255,228,179,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
-      .fa-turn-timer.warning { color:#ffe0ae; border-color: rgba(255,189,96,.35); }
-      .fa-turn-timer.danger { color:#ffd2c0; border-color: rgba(255,116,78,.45); background:linear-gradient(180deg, rgba(125,46,28,.48), rgba(77,25,12,.42)); }
+      .fa-turn-timer.warning { color:#ffe0ae; border-color:rgba(255,189,96,.35); }
+      .fa-turn-timer.danger { color:#ffd2c0; border-color:rgba(255,116,78,.45); background:rgba(125,46,28,.48); }
 
-      .fa-board-wrap {
-        position: relative; width: 100%;
-        display: flex; justify-content: center; align-items: center;
-        padding: 14px 8px 10px; min-height: 720px;
-        border-radius: 26px;
-        overflow: hidden;
-        touch-action: manipulation;
+      /* Board area */
+      .fa-board-area {
+        flex:1; position:relative;
+        display:flex; justify-content:center; align-items:center;
+        padding:10px; overflow:hidden;
         background:
-          linear-gradient(180deg, rgba(255,245,230,.08), rgba(255,245,230,0)),
-          radial-gradient(circle at center, rgba(255,233,196,.07), transparent 68%),
-          radial-gradient(circle at 14% 12%, rgba(232,188,110,.13), transparent 24%),
-          radial-gradient(circle at 86% 18%, rgba(145,96,44,.10), transparent 24%),
-          repeating-linear-gradient(
-            90deg,
-            rgba(255,255,255,.015) 0px,
-            rgba(255,255,255,.015) 3px,
-            rgba(0,0,0,.022) 3px,
-            rgba(0,0,0,.022) 10px
-          ),
-          linear-gradient(135deg, rgba(120,76,35,.34), rgba(77,48,24,.3) 35%, rgba(49,29,15,.34) 100%);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 30px 90px rgba(28,15,6,.26);
-      }
-      .fa-board-wrap::before {
-        content: '';
-        position: absolute; inset: 0;
-        background:
-          radial-gradient(circle at 20% 15%, rgba(246,204,119,.09), transparent 18%),
-          radial-gradient(circle at 80% 20%, rgba(74,112,255,.09), transparent 18%),
-          radial-gradient(circle at 75% 85%, rgba(82,214,154,.08), transparent 18%),
-          linear-gradient(120deg, rgba(255,255,255,.03), transparent 30%, rgba(255,255,255,.02) 58%, transparent 78%);
-        pointer-events: none;
+          radial-gradient(circle at center, rgba(255,233,196,.05), transparent 70%),
+          linear-gradient(145deg,rgba(55,30,10,.3),rgba(22,12,5,.3));
+        min-height:0;
       }
       #fa-board {
-        width: min(100%, 820px); height: auto; display: block;
-        border-radius: 24px; box-shadow: 0 25px 70px rgba(0,0,0,.4);
-        background: #deb978;
-        touch-action: manipulation;
+        width:min(100%,calc(100vh - 180px)); height:auto; display:block;
+        border-radius:20px; box-shadow:0 20px 60px rgba(0,0,0,.45);
+        touch-action:manipulation;
       }
-      .fa-board-playerbar{
+      .fa-board-playerbar {
         position:absolute; z-index:4;
-        display:flex; flex-direction:column; gap:3px;
-        width:auto; min-width:0; max-width:min(26vw, 190px);
-        padding:8px 10px; border-radius:14px;
-        background:
-          linear-gradient(180deg, rgba(74,44,21,.82), rgba(34,20,10,.78)),
-          radial-gradient(circle at top, rgba(255,224,163,.10), transparent 55%);
-        border:1px solid rgba(255,227,170,.14);
-        box-shadow:0 10px 22px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.07);
-        backdrop-filter: blur(10px);
+        display:flex; flex-direction:column; gap:2px;
+        padding:7px 10px; border-radius:12px; min-width:0; max-width:min(28vw,180px);
+        background:linear-gradient(145deg,rgba(50,28,10,.88),rgba(22,12,4,.84));
+        border:1px solid rgba(255,227,170,.12); backdrop-filter:blur(8px);
         pointer-events:none;
+        box-shadow:0 8px 20px rgba(0,0,0,.2);
       }
-      .fa-board-playerbar.enemy{ left:14px; top:14px; align-items:flex-start; }
-      .fa-board-playerbar.self{ right:14px; bottom:14px; text-align:right; align-items:flex-end; }
-      .fa-board-playerbar.hidden{ display:none !important; }
-      .fa-board-playerbar-name{
-        font-size:11px; line-height:1.15; font-weight:900; color:#fff3dd; letter-spacing:.01em;
-        white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-      }
-      .fa-board-playerbar-stars{
-        font-size:10px; line-height:1.1; font-weight:800; color:#ffd98a;
-      }
-      #fa-floating-surrender{
-        position:absolute; left:0; top:0;
-      }
+      .fa-board-playerbar.enemy { left:12px; top:12px; }
+      .fa-board-playerbar.self { right:12px; bottom:12px; text-align:right; align-items:flex-end; }
+      .fa-board-playerbar-name { font-size:11px; font-weight:900; color:#fff3dd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .fa-board-playerbar-stars { font-size:10px; font-weight:800; color:#ffd98a; }
 
-      .fa-stage, .fa-overlay {
-        position: absolute; inset: 0; display: grid; place-items: center;
-        background: linear-gradient(180deg, rgba(35,20,8,.28), rgba(26,15,7,.46));
-        padding: 18px;
-        z-index: 6;
-      }
-      .fa-stage.hidden, .fa-overlay.hidden, .fa-modal.hidden, .fa-floating-game-actions.hidden { display: none; }
-      .fa-stage-card, .fa-overlay-card, .fa-confirm-card {
-        width: min(100%, 520px); padding: 24px; border-radius: 28px;
-        background: linear-gradient(180deg, rgba(77,49,24,.94), rgba(47,29,15,.96));
-        border: 1px solid rgba(255,255,255,.09); box-shadow: var(--shadow);
-        text-align: center;
-      }
-      .fa-stage-card.compact { width: min(100%, 420px); }
-      .fa-stage-card.lobby { width: min(100%, 560px); }
-      .fa-lobby-result {
-        margin-top: 16px; padding: 14px 16px; border-radius: 20px;
-        border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.05);
-      }
-      .fa-lobby-result.hidden { display: none; }
-      .fa-lobby-result-title { font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--gold2); font-weight: 900; }
-      .fa-lobby-result-text { margin-top: 8px; color: #f1f4fb; font-size: 14px; line-height: 1.5; }
-      .mobile-only { display: none; }
-      .fa-stage-eyebrow {
-        color: var(--gold2); font-size: 12px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase;
-      }
-      .fa-stage-title, .fa-overlay-title, .fa-confirm-title {
-        font-size: 30px; font-weight: 900; letter-spacing: .03em; margin-top: 10px;
-      }
-      .fa-overlay-card.result-pop {
-        width: min(100%, 460px);
-        padding: 28px 24px 24px;
-        background:
-          linear-gradient(180deg, rgba(84,53,27,.98), rgba(43,26,13,.98)),
-          radial-gradient(circle at top, rgba(255,226,154,.14), transparent 42%);
-        border: 1px solid rgba(255,228,179,.18);
-        box-shadow: 0 30px 90px rgba(0,0,0,.46), inset 0 1px 0 rgba(255,255,255,.08);
-      }
-      .fa-overlay-stars {
-        margin-top: 14px;
-        font-size: 34px;
-        line-height: 1.1;
-        font-weight: 1000;
-        letter-spacing: .01em;
-        color: #fff5d6;
-        text-shadow: 0 10px 28px rgba(0,0,0,.26);
-      }
-      .fa-overlay-stars.positive { color: #ffe89b; }
-      .fa-overlay-stars.negative { color: #ffb8a5; }
-      .fa-stage-text, .fa-overlay-text, .fa-confirm-text {
-        font-size: 14px; color: var(--muted); margin-top: 12px; line-height: 1.6;
-      }
-      .fa-start-profile {
-        margin-top: 18px; display: flex; align-items: center; gap: 16px;
-        padding: 16px; border-radius: 22px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.04);
-        text-align: left;
-      }
-      .fa-start-fields { flex: 1; min-width: 0; }
-      .fa-input-label {
-        display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .16em;
-        color: var(--muted); margin-bottom: 8px;
-      }
-      #fa-nickname {
-        width: 100%; height: 52px; border-radius: 16px; padding: 0 16px;
-        border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.045); color: #f4f7ff;
-        font-size: 15px; outline: none;
-      }
-      .fa-fixed-profile.hidden { display: none; }
-      .fa-fixed-profile {
-        padding: 12px 14px;
-        border-radius: 16px;
-        border: 1px solid rgba(255,255,255,.10);
-        background: rgba(255,255,255,.05);
-      }
-      .fa-fixed-name {
-        margin-top: 2px;
-        font-size: 18px;
-        font-weight: 900;
-        color: #f4f7ff;
-        letter-spacing: .02em;
-      }
-      .fa-stage-actions, .fa-overlay-actions, .fa-confirm-actions {
-        display: flex; justify-content: center; gap: 12px; margin-top: 20px; flex-wrap: wrap;
-      }
-      .fa-stage-actions.split .fa-btn { min-width: 140px; }
-
-      .fa-floating-game-actions {
-        position: absolute;
-        right: 18px;
-        top: 18px;
-        z-index: 3;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .fa-floating-game-actions .fa-btn {
-        min-width: 152px;
-        backdrop-filter: blur(12px);
-        background: rgba(66,40,19,.78);
-      }
-
-      .fa-bottom {
-        display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 8px 2px;
-      }
-      .fa-progress-box { flex: 1; }
-      .fa-progress-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; color: var(--muted); }
-      .fa-progress-bar {
-        height: 12px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.08);
-      }
-      #fa-progress-fill {
-        height: 100%; width: 0%;
-        background: linear-gradient(90deg, #7bd46a, #d9c07f);
-        border-radius: 999px;
-        transition: width .35s ease;
-      }
-      .fa-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-      .fa-btn {
-        appearance: none; border: 1px solid rgba(255,255,255,.12); outline: none;
-        background: rgba(255,255,255,.06); color: #fff8ef; border-radius: 16px; padding: 12px 16px;
-        font-weight: 800; cursor: pointer; transition: .2s ease; box-shadow: 0 10px 24px rgba(0,0,0,.18);
-      }
-      .fa-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,.08); }
-      .fa-btn.primary {
-        background: linear-gradient(145deg, rgba(214,180,109,.98), rgba(126,98,43,.98));
-        color: #121316; border-color: rgba(255,230,181,.36);
-      }
-      .fa-btn.danger { border-color: rgba(255,132,109,.28); color: #ffd3c8; }
-      .fa-btn.ghost { background: rgba(255,248,238,.045); }
-      .fa-btn.big { min-width: 180px; padding: 14px 20px; }
-      .fa-panel-title { font-weight: 900; font-size: 18px; }
-      .fa-panel-sub, .fa-mini-note { font-size: 13px; color: var(--muted); margin-top: 6px; }
-      .fa-profile-inline {
-        margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
-        background: rgba(255,245,232,.05); border: 1px solid rgba(255,237,206,.08); border-radius: 18px;
-      }
-      .fa-profile-main-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-width:0; }
-      .fa-wallet-box {
-        margin-top: 14px; padding: 16px; border-radius: 20px;
-        background: linear-gradient(180deg, rgba(255,246,222,.12), rgba(255,246,222,.05));
-        border: 1px solid rgba(255,227,160,.16);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-      }
-      .fa-wallet-line { display:flex; align-items:center; gap:10px; color:#ffe9b2; font-weight:900; letter-spacing:.03em; }
-      .fa-star-icon {
-        display:inline-grid; place-items:center; width:30px; height:30px; border-radius:10px;
-        background: radial-gradient(circle at 30% 30%, rgba(255,249,209,.98), rgba(255,210,87,.96) 48%, rgba(176,114,18,.96) 100%);
-        color:#1f160a; font-size:17px; box-shadow: 0 8px 18px rgba(255,205,74,.22), inset 0 1px 1px rgba(255,255,255,.6);
-      }
-      .fa-star-icon.mini { width:26px; height:26px; border-radius:9px; font-size:15px; }
-      #fa-current-stars { display:block; margin-top:10px; font-size:30px; letter-spacing:.02em; color:#fff8e8; }
-      .fa-wallet-mini { margin-top:6px; color: var(--muted); font-size: 13px; }
-      .fa-stats-grid { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .fa-stat-box, .fa-info-box { background: rgba(255,245,232,.05); border-radius: 18px; border: 1px solid rgba(255,237,206,.08); }
-      .fa-stat-box { padding: 14px; }
-      .fa-stat-box span { display: block; color: var(--muted); font-size: 13px; }
-      .fa-stat-box strong { display: block; margin-top: 8px; font-size: 24px; letter-spacing: .02em; }
-      .fa-info-box { padding: 12px 14px; margin-top: 12px; }
-      .fa-info-line { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); gap: 12px; }
-      .fa-info-line:last-child { border-bottom: 0; }
-      .fa-info-line span { color: var(--muted); font-size: 13px; }
-      .fa-info-line strong { font-size: 14px; }
-      .fa-leader-scroll {
-        margin-top: 12px; max-height: 484px; overflow: auto; padding-right: 4px;
-      }
-      .fa-leader-scroll::-webkit-scrollbar, .fa-modal-body::-webkit-scrollbar { width: 10px; }
-      .fa-leader-scroll::-webkit-scrollbar-thumb, .fa-modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 999px; }
-      .fa-rank-row {
-        display: grid; grid-template-columns: 48px 1fr auto; gap: 10px; align-items: center;
-        padding: 12px 12px; border-radius: 18px; margin-bottom: 10px; background: rgba(255,255,255,.04);
-        border: 1px solid rgba(255,255,255,.07);
-      }
-      .fa-rank-pos {
-        width: 38px; height: 38px; border-radius: 14px; display: grid; place-items: center;
-        background: linear-gradient(145deg, rgba(255,255,255,.15), rgba(255,255,255,.04)); font-weight: 900;
-      }
-      .fa-rank-pos.crown-top { background: linear-gradient(145deg, rgba(245,214,135,.96), rgba(160,121,42,.92)); color: #16181d; box-shadow: 0 10px 24px rgba(213,178,108,.28); }
-      .fa-rank-pos.crown-silver { background: linear-gradient(145deg, rgba(231,237,246,.96), rgba(137,148,167,.86)); color: #131722; box-shadow: 0 10px 24px rgba(159,171,194,.24); }
-      .fa-rank-pos.crown-bronze { background: linear-gradient(145deg, rgba(223,174,136,.96), rgba(142,89,58,.9)); color: #1a1715; box-shadow: 0 10px 24px rgba(172,112,74,.24); }
-      .fa-rank-pos.rank-four { background: linear-gradient(145deg, rgba(157,232,221,.96), rgba(40,122,111,.88)); color: #10211f; box-shadow: 0 10px 24px rgba(78,176,162,.22); }
-      .fa-rank-pos.rank-five { background: linear-gradient(145deg, rgba(204,191,255,.96), rgba(98,82,170,.88)); color: #12111b; box-shadow: 0 10px 24px rgba(121,103,200,.22); }
-      .fa-rank-pos.rank-six { background: linear-gradient(145deg, rgba(255,209,231,.96), rgba(170,70,123,.88)); color: #1f1018; box-shadow: 0 10px 24px rgba(207,108,158,.22); }
-      .fa-rank-main { min-width: 0; }
-      .fa-rank-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .fa-rank-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
-      .fa-rank-badge {
-        min-width: 68px; text-align: center; padding: 8px 10px; border-radius: 999px;
-        background: rgba(213,178,108,.14); color: #f0d79d; font-weight: 800; border: 1px solid rgba(213,178,108,.24);
-      }
-
-      .fa-leader-tabs { display:flex; gap:10px; padding: 14px 18px 0; flex-wrap:wrap; }
-      .fa-confirm-progress { margin-top: 14px; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.08); }
-      #fa-confirm-progress-fill { height:100%; width:100%; background: linear-gradient(90deg, #d9c07f, #7bd46a); transition: width .2s linear; }
-      .fa-modal {
-        position: fixed; inset: 0; background: rgba(26,15,7,.56); display: grid; place-items: center; padding: 22px; z-index: 10;
-      }
-      .fa-modal-card {
-        width: min(100%, 860px); max-height: min(88vh, 940px); border-radius: 28px;
-        background: linear-gradient(180deg, rgba(73,47,24,.95), rgba(42,27,14,.96));
-        border: 1px solid rgba(255,255,255,.08); box-shadow: var(--shadow); overflow: hidden;
-      }
-      .fa-modal-head {
-        padding: 18px 20px; display: flex; justify-content: space-between; align-items: center;
-        border-bottom: 1px solid rgba(255,255,255,.08);
-      }
-      .fa-modal-title { font-weight: 900; font-size: 24px; }
-      .fa-modal-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
-      .fa-modal-body { padding: 16px 18px 18px; overflow: auto; max-height: calc(88vh - 92px); }
-
+      /* Place action */
       .fa-place-action {
-        position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 14;
-        pointer-events: none;
+        position:absolute; bottom:18px; left:50%; transform:translateX(-50%); z-index:14; pointer-events:none;
       }
-      .fa-place-action .fa-btn { pointer-events: auto; min-width: 132px; }
-      .fa-win-burst {
-        position: absolute; inset: 0; z-index: 12; pointer-events: none; overflow: hidden;
+      .fa-place-btn {
+        pointer-events:auto; appearance:none; cursor:pointer; font-weight:900;
+        padding:14px 32px; border-radius:999px; font-size:15px;
+        background:linear-gradient(145deg,rgba(214,180,109,.98),rgba(126,98,43,.98));
+        color:#121316; border:1px solid rgba(255,230,181,.36);
+        box-shadow:0 12px 32px rgba(0,0,0,.3);
+        transition:.18s;
       }
-      .fa-win-burst.hidden { display: none; }
-      .fa-win-spark {
-        position: absolute; width: 14px; height: 14px; border-radius: 999px;
-        background: radial-gradient(circle at 30% 30%, rgba(255,252,232,.98), rgba(255,207,92,.92) 42%, rgba(168,96,21,.08) 72%, transparent 73%);
-        box-shadow: 0 0 18px rgba(255,219,116,.58);
-        animation: faWinSpark 980ms cubic-bezier(.18,.78,.24,1) forwards;
-      }
-      .fa-win-spark.alt {
-        background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.96), rgba(158,255,210,.9) 42%, rgba(38,126,87,.08) 72%, transparent 73%);
-        box-shadow: 0 0 18px rgba(110,232,168,.52);
-      }
-      @keyframes faWinSpark {
-        0% { transform: translate3d(0,0,0) scale(.2); opacity: 0; }
-        14% { opacity: 1; }
-        100% { transform: translate3d(var(--dx, 0px), var(--dy, -120px), 0) scale(1.3); opacity: 0; }
-      }
+      .fa-place-btn:hover { transform:translateY(-2px); filter:brightness(1.06); }
+      .fa-place-btn:active { transform:scale(.96); }
+
+      /* Countdown */
       .fa-countdown {
-        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-        z-index: 16; background: radial-gradient(circle at center, rgba(57,34,15,.06), rgba(23,13,7,.28));
-        backdrop-filter: blur(2px);
+        position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+        z-index:16; background:rgba(20,10,4,.3); backdrop-filter:blur(2px);
+        border-radius:20px;
       }
       .fa-countdown-num {
-        min-width: auto; min-height: auto; border-radius: 0;
-        display: flex; align-items: center; justify-content: center;
-        padding: 0 18px;
-        font-size: clamp(56px, 11vw, 108px); font-weight: 1000; letter-spacing: -.04em;
-        color: #fff8e6; text-shadow: 0 8px 30px rgba(0,0,0,.35);
-        background: transparent;
-        box-shadow: none;
-        border: 0;
+        font-size:clamp(60px,16vw,110px); font-weight:900; color:#fff8e6;
+        text-shadow:0 8px 30px rgba(0,0,0,.4); letter-spacing:-.04em;
       }
-      .fa-countdown.start .fa-countdown-num {
-        color: #ffe47c;
-      }
-      .fa-board-wrap.locked #fa-board { pointer-events: none; }
-      .fa-board-wrap .fa-stage,
-      .fa-board-wrap .fa-overlay,
-      .fa-board-wrap .fa-countdown { border-radius: 26px; }
-      .fa-board-wrap .fa-place-action.hidden,
-      .fa-board-wrap .fa-countdown.hidden { display: none; }
-      body.fa-roomlist-lock { overflow:hidden !important; overscroll-behavior:none; }
-      body.fa-roomlist-lock .fa-open-rooms-list { touch-action: pan-y !important; overflow-x: hidden !important; overflow-y: auto !important; }
+      .fa-countdown.start .fa-countdown-num { color:#ffe47c; }
 
-      .fa-confirm-card { width: min(100%, 420px); }
+      /* Win burst */
+      .fa-win-burst { position:absolute; inset:0; z-index:12; pointer-events:none; overflow:hidden; border-radius:20px; }
+      .fa-win-spark {
+        position:absolute; width:13px; height:13px; border-radius:50%;
+        background:radial-gradient(circle at 30% 30%,rgba(255,252,232,.98),rgba(255,207,92,.92) 42%,transparent 73%);
+        animation:faWinSpark 980ms cubic-bezier(.18,.78,.24,1) forwards;
+      }
+      .fa-win-spark.alt { background:radial-gradient(circle at 30% 30%,#fff,rgba(158,255,210,.9) 42%,transparent 73%); }
+      @keyframes faWinSpark {
+        0%   { transform:translate3d(0,0,0) scale(.2); opacity:0; }
+        14%  { opacity:1; }
+        100% { transform:translate3d(var(--dx,0px),var(--dy,-120px),0) scale(1.3); opacity:0; }
+      }
+
+      /* Game footer */
+      .fa-game-footer {
+        padding:10px 14px calc(10px + var(--safe-bot));
+        background:rgba(14,6,2,.88); border-top:1px solid var(--line);
+        flex-shrink:0;
+      }
+      .fa-game-rank-bar {
+        display:flex; align-items:center; gap:10px; margin-bottom:10px;
+        font-size:12px; color:var(--muted);
+      }
+      .fa-progress-bar-track {
+        flex:1; height:8px; border-radius:999px; overflow:hidden;
+        background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.07);
+      }
+      .fa-progress-bar-fill {
+        height:100%; width:0%; border-radius:999px;
+        background:linear-gradient(90deg,#7bd46a,#d9c07f); transition:width .35s ease;
+      }
+      .fa-game-controls { display:flex; gap:8px; flex-wrap:wrap; }
+      .fa-ctrl-btn {
+        appearance:none; cursor:pointer; flex:1; min-width:0;
+        padding:10px 8px; border-radius:var(--radius-sm);
+        border:1px solid var(--line); background:var(--card);
+        color:#fff8ef; font-weight:800; font-size:13px; transition:.18s;
+      }
+      .fa-ctrl-btn:hover { background:rgba(255,255,255,.08); }
+      .fa-ctrl-btn.danger { border-color:rgba(255,132,109,.25); color:#ffd3c8; }
+      .fa-ctrl-btn.ghost { background:rgba(255,248,238,.03); }
+
+      /* Floating game actions (mobile fullscreen) */
+      .fa-floating-game-actions {
+        position:absolute; right:14px; top:14px; z-index:30;
+        display:flex; flex-direction:column; gap:8px;
+      }
+      .fa-float-btn {
+        appearance:none; cursor:pointer; padding:10px 16px; border-radius:12px;
+        border:1px solid var(--line); font-weight:800; font-size:13px;
+        background:rgba(40,22,8,.82); color:#fff8ef; backdrop-filter:blur(10px);
+        transition:.18s; min-width:130px;
+      }
+      .fa-float-btn.danger { border-color:rgba(255,132,109,.25); color:#ffd3c8; }
+
+      /* Fullscreen overlay (pause) */
+      .fa-fullscreen-overlay {
+        position:absolute; inset:0; z-index:20;
+        display:grid; place-items:center; padding:18px;
+        background:rgba(16,7,2,.7); backdrop-filter:blur(4px);
+      }
+      .fa-fs-card {
+        width:min(100%,420px); padding:28px 24px 24px; border-radius:var(--radius-lg);
+        background:linear-gradient(160deg,rgba(60,35,15,.97),rgba(30,16,8,.98));
+        border:1px solid rgba(255,255,255,.09); box-shadow:var(--shadow);
+        text-align:center;
+      }
+      .fa-fs-eyebrow { font-size:12px; font-weight:800; letter-spacing:.22em; color:var(--gold2); margin-bottom:10px; }
+      .fa-fs-title { font-size:28px; font-weight:900; margin-bottom:10px; }
+      .fa-fs-text { font-size:14px; color:var(--muted); line-height:1.6; margin-bottom:20px; }
+      .fa-fs-actions { display:flex; flex-direction:column; gap:10px; }
+
+      /* ══════════════════════════════════════════
+         RESULT SCREEN
+      ══════════════════════════════════════════ */
+      #fa-screen-result {
+        justify-content:center; align-items:center;
+        background:var(--bg);
+      }
+      .fa-result-bg {
+        position:absolute; inset:0; pointer-events:none;
+        transition:background 0.5s;
+      }
+      .fa-result-bg.win {
+        background:radial-gradient(circle at 50% 30%, rgba(141,207,101,.18), transparent 60%),
+                   radial-gradient(circle at 80% 80%, rgba(213,178,108,.12), transparent 50%);
+      }
+      .fa-result-bg.loss {
+        background:radial-gradient(circle at 50% 30%, rgba(255,100,80,.1), transparent 60%);
+      }
+      .fa-result-content {
+        position:relative; z-index:1; width:100%;
+        max-width:440px; padding:32px 24px calc(32px + var(--safe-bot));
+        display:flex; flex-direction:column; align-items:center; text-align:center;
+        overflow-y:auto; max-height:100%;
+      }
+      .fa-result-icon { font-size:64px; margin-bottom:16px; line-height:1; }
+      .fa-result-title { font-size:36px; font-weight:900; letter-spacing:.02em; margin-bottom:10px; }
+      .fa-result-stars {
+        font-size:28px; font-weight:900; margin-bottom:8px; color:#ffe89b;
+      }
+      .fa-result-stars.negative { color:#ffb8a5; }
+      .fa-result-text { font-size:14px; color:var(--muted); line-height:1.6; margin-bottom:24px; }
+      .fa-result-stats {
+        display:flex; align-items:center; gap:0;
+        width:100%; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+        margin-bottom:20px;
+      }
+      .fa-rs-item { flex:1; text-align:center; }
+      .fa-rs-item span { display:block; font-size:22px; font-weight:900; color:#fff3e0; }
+      .fa-rs-item label { display:block; font-size:12px; color:var(--muted); margin-top:3px; }
+      .fa-rs-div { width:1px; height:30px; background:var(--line); flex-shrink:0; }
+      .fa-result-rank-bar { width:100%; margin-bottom:28px; }
+      .fa-rrb-label { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); margin-bottom:8px; }
+      .fa-result-actions { display:flex; flex-direction:column; gap:10px; width:100%; }
+
+      /* ══════════════════════════════════════════
+         MODALS
+      ══════════════════════════════════════════ */
+      .fa-modal {
+        position:fixed; inset:0; z-index:100;
+        background:rgba(10,4,1,.65); display:grid; place-items:center; padding:16px;
+        backdrop-filter:blur(4px);
+      }
+      .fa-modal-card {
+        width:min(100%,820px); max-height:88vh; border-radius:var(--radius-lg);
+        background:linear-gradient(160deg,rgba(55,32,14,.97),rgba(30,16,8,.98));
+        border:1px solid rgba(255,255,255,.08); box-shadow:var(--shadow); overflow:hidden;
+        display:flex; flex-direction:column;
+      }
+      .fa-modal-head {
+        padding:16px 20px; display:flex; justify-content:space-between; align-items:center;
+        border-bottom:1px solid var(--line); flex-shrink:0;
+      }
+      .fa-modal-title { font-weight:900; font-size:22px; }
+      .fa-modal-sub { font-size:12px; color:var(--muted); margin-top:3px; }
+      .fa-leader-tabs { display:flex; gap:8px; padding:12px 18px 0; flex-shrink:0; }
+      .fa-tab-chip {
+        appearance:none; border:1px solid rgba(255,238,205,.15); background:rgba(255,248,235,.05);
+        color:#fff6e6; border-radius:999px; padding:8px 14px; font-weight:800; cursor:pointer; font-size:13px;
+        transition:.18s;
+      }
+      .fa-tab-chip.active {
+        background:linear-gradient(145deg,rgba(228,193,126,.26),rgba(160,115,45,.2));
+        border-color:rgba(255,228,167,.22);
+      }
+      .fa-modal-body { padding:14px 18px 18px; overflow-y:auto; flex:1; }
+
+      .fa-confirm-card {
+        width:min(100%,400px); padding:28px 24px; border-radius:var(--radius-lg);
+        background:linear-gradient(160deg,rgba(60,35,15,.97),rgba(30,16,8,.98));
+        border:1px solid rgba(255,255,255,.09); box-shadow:var(--shadow); text-align:center;
+      }
       .fa-confirm-icon {
-        width: 62px; height: 62px; margin: 0 auto;
-        display: grid; place-items: center; border-radius: 20px;
-        background: linear-gradient(145deg, rgba(214,180,109,.98), rgba(126,98,43,.98));
-        color: #121316; font-size: 26px; font-weight: 900;
+        width:58px; height:58px; border-radius:18px; margin:0 auto 14px;
+        display:grid; place-items:center;
+        background:linear-gradient(145deg,rgba(214,180,109,.98),rgba(126,98,43,.98));
+        color:#121316; font-size:24px; font-weight:900;
+      }
+      .fa-confirm-title { font-size:22px; font-weight:900; margin-bottom:10px; }
+      .fa-confirm-text { font-size:14px; color:var(--muted); line-height:1.6; margin-bottom:18px; }
+      .fa-confirm-progress {
+        height:8px; border-radius:999px; overflow:hidden;
+        background:rgba(255,255,255,.08); margin-bottom:18px;
+      }
+      #fa-confirm-progress-fill { height:100%; width:100%; background:linear-gradient(90deg,#d9c07f,#7bd46a); transition:width .2s linear; }
+      .fa-confirm-actions { display:flex; gap:10px; }
+      .fa-confirm-actions .fa-cta-btn { flex:1; }
+
+      /* Leaderboard rows */
+      .fa-rank-row {
+        display:grid; grid-template-columns:44px 1fr auto; gap:10px; align-items:center;
+        padding:11px 12px; border-radius:var(--radius-sm); margin-bottom:8px;
+        background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.06);
+      }
+      .fa-rank-pos {
+        width:36px; height:36px; border-radius:12px; display:grid; place-items:center;
+        font-weight:900; font-size:14px;
+        background:linear-gradient(145deg,rgba(255,255,255,.14),rgba(255,255,255,.04));
+      }
+      .fa-rank-pos.crown-top    { background:linear-gradient(145deg,rgba(245,214,135,.96),rgba(160,121,42,.92)); color:#16181d; }
+      .fa-rank-pos.crown-silver { background:linear-gradient(145deg,rgba(231,237,246,.96),rgba(137,148,167,.86)); color:#131722; }
+      .fa-rank-pos.crown-bronze { background:linear-gradient(145deg,rgba(223,174,136,.96),rgba(142,89,58,.9));  color:#1a1715; }
+      .fa-rank-pos.rank-four    { background:linear-gradient(145deg,rgba(157,232,221,.96),rgba(40,122,111,.88)); color:#10211f; }
+      .fa-rank-pos.rank-five    { background:linear-gradient(145deg,rgba(204,191,255,.96),rgba(98,82,170,.88));  color:#12111b; }
+      .fa-rank-pos.rank-six     { background:linear-gradient(145deg,rgba(255,209,231,.96),rgba(170,70,123,.88)); color:#1f1018; }
+      .fa-rank-main { min-width:0; }
+      .fa-rank-name { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .fa-rank-sub  { color:var(--muted); font-size:12px; margin-top:3px; }
+      .fa-rank-badge {
+        min-width:62px; text-align:center; padding:7px 10px; border-radius:999px;
+        background:rgba(213,178,108,.12); color:#f0d79d; font-weight:800; font-size:12px;
+        border:1px solid rgba(213,178,108,.2);
       }
 
-      body.fa-mobile-fullscreen .fa-topbar,
-      body.fa-mobile-fullscreen .fa-right,
-      body.fa-mobile-fullscreen .fa-bottom {
-        display: none !important;
+      /* ══════════════════════════════════════════
+         AVATAR
+      ══════════════════════════════════════════ */
+      .fa-avatar {
+        width:50px; height:50px; border-radius:16px; flex-shrink:0;
+        background:linear-gradient(145deg,rgba(236,221,187,.95),rgba(157,174,214,.28));
+        border:1px solid rgba(255,255,255,.12);
+        position:relative; display:grid; place-items:center;
+        overflow:hidden;
       }
-      body.fa-mobile-fullscreen .fa-status-row {
-        display: block !important;
-        position: fixed;
-        top: max(10px, env(safe-area-inset-top));
-        left: 50%;
-        transform: translateX(-50%);
-        width: auto;
-        margin: 0;
-        z-index: 35;
-        pointer-events: none;
+      .fa-avatar.large { width:68px; height:68px; border-radius:20px; font-size:28px; }
+      .fa-avatar::before {
+        content:''; position:absolute; inset:0;
+        background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.92),rgba(255,255,255,.18) 26%,transparent 27%),
+                   linear-gradient(145deg,rgba(236,221,187,.95),rgba(157,174,214,.28));
       }
-      body.fa-mobile-fullscreen .fa-status-row .fa-player-card,
-      body.fa-mobile-fullscreen .fa-status-row .fa-turn,
-      body.fa-mobile-fullscreen .fa-status-row .fa-streak {
-        display: none !important;
+      .fa-avatar::after { content:attr(data-avatar); position:relative; z-index:1; font-size:22px; }
+      .fa-avatar.large::after { font-size:32px; }
+
+      /* ══════════════════════════════════════════
+         MOBILE FULLSCREEN MODE
+      ══════════════════════════════════════════ */
+      body.fa-mobile-fullscreen .fa-game-header,
+      body.fa-mobile-fullscreen .fa-game-footer { display:none !important; }
+      body.fa-mobile-fullscreen .fa-board-area { min-height:100vh; padding:6px; }
+      body.fa-mobile-fullscreen #fa-board { width:min(100vw - 12px, 100vh - 12px); }
+      body.fa-mobile-fullscreen .fa-board-playerbar.enemy { top:72px; left:20px; }
+      body.fa-mobile-fullscreen .fa-board-playerbar.self  { right:20px; bottom:max(28px, var(--safe-bot)); }
+      body.fa-mobile-fullscreen .fa-floating-game-actions { display:flex !important; flex-direction:row; right:10px; top:max(10px,var(--safe-top)); left:10px; justify-content:space-between; }
+      body.fa-mobile-fullscreen .fa-float-btn { min-width:120px; }
+
+      /* ══════════════════════════════════════════
+         RESPONSIVE
+      ══════════════════════════════════════════ */
+      @media (min-width:741px) {
+        .fa-screen { max-width:520px; margin:0 auto; border-left:1px solid var(--line); border-right:1px solid var(--line); }
+        #fa-screen-game { max-width:100%; }
+        #fa-board { width:min(100%,600px); }
+        .fa-game-header { padding:14px 20px 12px; }
+        .fa-home-bottom-nav { display:none; }
       }
-      body.fa-mobile-fullscreen .fa-status-row .fa-center-vs {
-        padding: 0;
-      }
-      body.fa-mobile-fullscreen .fa-status-row .fa-turn-timer {
-        display: inline-flex !important;
-        min-width: 132px;
-        padding: 10px 14px;
-        font-size: 16px;
-        box-shadow: 0 10px 28px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.08);
-      }
-      body.fa-mobile-fullscreen #fa-floating-game-actions{
-        display:flex !important;
-        right:12px;
-        left:12px;
-        top:max(12px, env(safe-area-inset-top));
-        flex-direction:row;
-        justify-content:space-between;
-        align-items:flex-start;
-      }
-      body.fa-mobile-fullscreen #fa-floating-surrender{
-        display:inline-flex !important;
-        position:relative;
-        left:auto; top:auto;
-        min-width:132px;
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar{
-        padding:10px 12px;
-        border-radius:16px;
-        max-width:min(42vw, 220px);
-        box-shadow:0 14px 28px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.08);
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar-name{
-        font-size:13px;
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar-stars{
-        font-size:12px;
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar.enemy{
-        top:86px;
-        left:24px;
-      }
-      body.fa-mobile-fullscreen .fa-board-playerbar.self{
-        right:24px;
-        bottom:max(32px, env(safe-area-inset-bottom));
-      }
-      body.fa-mobile-fullscreen .fa-main {
-        display: block;
-        max-width: 100%;
-        padding: 0;
-      }
-      body.fa-mobile-fullscreen .fa-panel.hero {
-        padding: 0;
-        border-radius: 0;
-        border: 0;
-        min-height: 100vh;
-        background: linear-gradient(180deg, #3c2414 0%, #25160c 100%);
-      }
-      body.fa-mobile-fullscreen .fa-board-wrap {
-        min-height: 100vh;
-        border-radius: 0;
-        padding: 10px;
-      }
-      body.fa-mobile-fullscreen #fa-board {
-        width: min(100vw - 20px, 100vh - 20px);
+      @media (max-width:740px) {
+        .fa-game-controls { flex-wrap:nowrap; overflow-x:auto; gap:6px; }
+        .fa-ctrl-btn { min-width:72px; flex-shrink:0; }
+        .fa-game-rank-bar { gap:6px; font-size:11px; }
       }
 
-      @media (max-width: 1120px) {
-        .fa-main { grid-template-columns: 1fr; }
-      }
-      #fa-nav-online { display:none !important; }
-      body.fa-needs-profile.fa-route-home #fa-home-scene { display:none !important; }
-      body.fa-route-ai .fa-stage-card.lobby,
-      body.fa-route-create-room .fa-stage-card.lobby,
-      body.fa-route-friend-match .fa-stage-card.lobby,
-      body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby {
-        min-height: calc(100svh - 210px);
-        padding: 20px;
-      }
-      body.fa-route-ai .fa-board-wrap,
-      body.fa-route-create-room .fa-board-wrap,
-      body.fa-route-friend-match .fa-board-wrap,
-      body.fa-route-friends .fa-board-wrap,
-      body.fa-route-room .fa-board-wrap {
-        min-height: calc(100svh - 210px);
-      }
-      @media (max-width: 740px) {
-        .fa-brand-area { width:auto; justify-content:flex-start; }
-        .fa-top-wallet-row { padding: 0 14px 12px; }
-        .fa-profile-main-meta { flex-direction:column; align-items:flex-start; }
-        .fa-stage, .fa-overlay {
-          align-items: start;
-          overflow-y: auto;
-          padding: max(14px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
-        }
-        .fa-stage-card, .fa-overlay-card, .fa-confirm-card {
-          margin: auto 0;
-        }
-        .fa-floating-game-actions { right: 12px; top: 12px; }
-        .fa-floating-game-actions .fa-btn { min-width: 138px; padding: 11px 14px; }
-        .mobile-only { display: inline-flex; }
-        .fa-topbar { padding: 14px; }
-        .fa-main { padding: 6px 14px 18px; gap: 14px; }
-        .hero, .setup, .stats, .info, .lb { padding: 14px; border-radius: 22px; }
-        .fa-status-row { grid-template-columns: 1fr; }
-        .fa-center-vs { order: -1; }
-        .fa-bottom { flex-direction: column; align-items: stretch; }
-        .fa-actions { width: 100%; }
-        .fa-actions .fa-btn { flex: 1; }
-        .fa-brand-title { font-size: 18px; }
-        .fa-modal { padding: 14px; }
-        .fa-modal-head { padding: 14px; }
-        .fa-modal-body { padding: 14px; }
-        .fa-rank-row { grid-template-columns: 42px 1fr auto; padding: 11px; }
-        .fa-start-profile { flex-direction: column; text-align: center; }
-        .fa-start-fields { width: 100%; text-align: left; }
-        .fa-room-actions { grid-template-columns: 1fr 1fr; }
-        .fa-room-stake-pills { grid-column: 1 / -1; grid-template-columns: 1fr; }
-
-        .fa-friend-panel.join-list-open .fa-room-presence,
-        .fa-friend-panel.join-list-open .fa-start-profile { display:none !important; }
-        .fa-friend-panel.join-list-open .fa-room-actions { grid-template-columns: 1fr; }
-        .fa-friend-panel.join-list-open #fa-room-title-input,
-        .fa-friend-panel.join-list-open #fa-create-room-btn,
-        .fa-friend-panel.join-list-open #fa-leave-room-btn { display:none !important; }
-        .fa-friend-panel.join-list-open #fa-room-code-input,
-        .fa-friend-panel.join-list-open #fa-join-room-btn { display:none !important; }
-        .fa-friend-panel.create-room-open .fa-room-presence,
-        .fa-friend-panel.create-room-open .fa-start-profile { display:none !important; }
-        .fa-friend-panel.create-room-open #fa-join-room-btn { display:none !important; }
-        .fa-friend-row { grid-template-columns: 1fr; }
-        .fa-friends-panel .fa-room-actions { grid-template-columns: 1fr; }
-        .fa-room-actions input { grid-column: 1 / -1; }
-        .fa-room-presence-slots { grid-template-columns: 1fr; }
-        .fa-open-rooms { max-height: 46vh; display: flex; flex-direction: column; }
-        .fa-open-rooms-list {
-          display: grid !important;
-          grid-template-columns: minmax(0, 1fr) !important;
-          flex-direction: column;
-          flex-wrap: nowrap !important;
-          gap: 10px;
-          overflow-x: hidden !important;
-          overflow-y: auto !important;
-          max-height: 32vh;
-          width: 100%;
-          -webkit-overflow-scrolling: touch;
-          padding-bottom: 2px;
-          justify-content:flex-start;
-          align-items: stretch;
-          touch-action: pan-y !important;
-          overscroll-behavior-y: contain;
-          scroll-snap-type: y proximity;
-        }
-        .fa-open-rooms-list.single-room { overflow-y: auto !important; overflow-x: hidden !important; justify-content: flex-start; }
-        .fa-room-item {
-          display: grid;
-          grid-template-columns: minmax(0,1fr) auto;
-          min-width: 0 !important;
-          width: 100% !important;
-          max-width: 100% !important;
-          flex: none !important;
-          margin: 0;
-          scroll-snap-align: start;
-        }
-        .fa-open-rooms-list.single-room .fa-room-item { min-width: 0 !important; width: 100% !important; max-width: 100% !important; flex: none !important; }
-        .fa-board-wrap { min-height: 72vh; }
-        .fa-board-playerbar{
-          max-width:min(38vw, 180px);
-          padding:7px 9px;
-        }
-        .fa-board-playerbar-name{ font-size:10px; }
-        .fa-board-playerbar-stars{ font-size:10px; }
-        html, body, #fa-omok-app, .fa-wrap { height: 100svh; overflow: hidden; }
-        .fa-wrap { display:flex; flex-direction:column; }
-        .fa-topbar, .fa-scene-nav-wrap { flex: 0 0 auto; }
-        .fa-top-wallet-row { flex: 1 1 auto; min-height: 0; overflow: hidden; display:none; }
-        body.fa-route-home .fa-top-wallet-row,
-        body.fa-route-ranking .fa-top-wallet-row { display:block !important; }
-        .fa-home-scene, .fa-ranking-scene { height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
-        .fa-ranking-scene .fa-panel { min-height: 100%; display:flex; flex-direction:column; }
-        #fa-ranking-screen-list { overflow-y: auto; max-height: none !important; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
-        .fa-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; scroll-behavior: auto; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
-        body.fa-route-ai .fa-main,
-        body.fa-route-create-room .fa-main,
-        body.fa-route-friend-match .fa-main,
-        body.fa-route-friends .fa-main,
-        body.fa-route-room .fa-main { padding-top: 0; }
-      }
+      /* ══════════════════════════════════════════
+         SCREEN TRANSITIONS
+      ══════════════════════════════════════════ */
+      .fa-screen { transition: transform .32s cubic-bezier(.4,0,.2,1), opacity .32s; }
+      .fa-screen.slide-up { transform:translateY(100%) !important; }
+      .fa-screen.slide-up.active { transform:translateY(0) !important; }
     `;
+
     document.head.appendChild(style);
     document.body.appendChild(root);
 
+    /* ── QUERY UI ELEMENTS ──────────────────────────────────── */
     ui.root = root;
-    ui.boardWrap = root.querySelector('#fa-board-wrap');
-    ui.board = root.querySelector('#fa-board');
-    ui.ctx = ui.board.getContext('2d');
-    ui.overlay = root.querySelector('#fa-overlay');
+
+    // Board
+    ui.boardWrap   = root.querySelector('#fa-board-wrap');
+    ui.board       = root.querySelector('#fa-board');
+    ui.ctx         = ui.board.getContext('2d');
+
+    // Overlay / Result (reuse IDs so all existing logic works)
+    ui.overlay     = root.querySelector('#fa-screen-result');
     ui.overlayTitle = root.querySelector('#fa-overlay-title');
     ui.overlayStars = root.querySelector('#fa-overlay-stars');
-    ui.overlayText = root.querySelector('#fa-overlay-text');
-    ui.turnLabel = root.querySelector('#fa-turn-label');
-    ui.streakLabel = root.querySelector('#fa-streak-label');
-    ui.turnTimer = root.querySelector('#fa-turn-timer');
-    ui.playerName = root.querySelector('#fa-player-name');
-    ui.playerRank = root.querySelector('#fa-player-rank');
-    ui.aiRank = root.querySelector('#fa-ai-rank');
+    ui.overlayText  = root.querySelector('#fa-overlay-text');
+    ui.overlayConfirmBtn = root.querySelector('#fa-overlay-confirm-btn');
+
+    // Turn / rank / streak
+    ui.turnLabel    = root.querySelector('#fa-turn-label');
+    ui.streakLabel  = root.querySelector('#fa-streak-label');
+    ui.turnTimer    = root.querySelector('#fa-turn-timer');
+    ui.playerName   = root.querySelector('#fa-player-name');
+    ui.playerRank   = root.querySelector('#fa-player-rank');
+    ui.aiRank       = root.querySelector('#fa-ai-rank');
     ui.progressRank = root.querySelector('#fa-progress-rank');
     ui.progressText = root.querySelector('#fa-progress-text');
     ui.progressFill = root.querySelector('#fa-progress-fill');
-    ui.totalWins = root.querySelector('#fa-total-wins');
-    ui.totalLosses = root.querySelector('#fa-total-losses');
-    ui.totalGames = root.querySelector('#fa-total-games');
-    ui.bestTier = root.querySelector('#fa-best-tier');
-    ui.scaleLine = root.querySelector('#fa-scale-line');
-    ui.reviewLine = root.querySelector('#fa-review-line');
-    ui.nickInput = root.querySelector('#fa-nickname');
-    ui.nickNote = root.querySelector('#fa-nick-note');
-    ui.nicknameEditor = root.querySelector('#fa-nickname-editor');
-    ui.fixedProfile = root.querySelector('#fa-fixed-profile');
-    ui.fixedName = root.querySelector('#fa-fixed-name');
-    ui.selfAvatar = root.querySelector('#fa-self-avatar');
-    ui.startAvatar = root.querySelector('#fa-start-avatar');
-    ui.startProfile = root.querySelector('.fa-start-profile');
-    ui.sideAvatar = root.querySelector('#fa-side-avatar');
-    ui.sideName = root.querySelector('#fa-side-name');
-    ui.connectionNote = root.querySelector('#fa-connection-note');
-    ui.currentStars = root.querySelector('#fa-current-stars');
-    ui.topStars = root.querySelector('#fa-top-stars');
-    ui.currentStakeNote = root.querySelector('#fa-current-stake-note');
-    ui.roomStakePills = Array.from(root.querySelectorAll('.fa-stake-pill'));
-    ui.leaderPreview = root.querySelector('#fa-leader-preview');
-    ui.leaderModal = root.querySelector('#fa-leaderboard-modal');
-    ui.leaderList = root.querySelector('#fa-leaderboard-list');
-    ui.leaderTabTotal = root.querySelector('#fa-leader-tab-total');
-    ui.leaderTabWeekly = root.querySelector('#fa-leader-tab-weekly');
-    ui.leaderTabPrevious = root.querySelector('#fa-leader-tab-previous');
-    ui.startScreen = root.querySelector('#fa-start-screen');
-    ui.pauseScreen = root.querySelector('#fa-pause-screen');
-    ui.pauseTitle = root.querySelector('#fa-pause-title');
-    ui.pauseText = root.querySelector('#fa-pause-text');
-    ui.confirmModal = root.querySelector('#fa-confirm-modal');
-    ui.confirmTitle = root.querySelector('#fa-confirm-title');
-    ui.confirmText = root.querySelector('#fa-confirm-text');
-    ui.confirmProgress = root.querySelector('#fa-confirm-progress');
-    ui.confirmProgressFill = root.querySelector('#fa-confirm-progress-fill');
-    ui.lobbyText = root.querySelector('#fa-lobby-text');
-    ui.lobbyResult = root.querySelector('#fa-lobby-result');
-    ui.lobbyResultTitle = root.querySelector('#fa-lobby-result-title');
-    ui.lobbyResultText = root.querySelector('#fa-lobby-result-text');
-    ui.lobbyConfirmActions = root.querySelector('#fa-lobby-confirm-actions');
-    ui.lobbyStartActions = root.querySelector('#fa-lobby-start-actions');
-    ui.confirmProfileBtn = root.querySelector('#fa-confirm-profile-btn');
-    ui.saveStart = root.querySelector('#fa-save-start');
-    ui.floatingGameActions = root.querySelector('#fa-floating-game-actions');
-    ui.floatingFullscreen = root.querySelector('#fa-floating-fullscreen');
-    ui.floatingExitFullscreen = root.querySelector('#fa-floating-exit-fullscreen');
-    ui.placeAction = root.querySelector('#fa-place-action');
-    ui.placeBtn = root.querySelector('#fa-place-btn');
-    ui.countdownOverlay = root.querySelector('#fa-countdown-overlay');
-    ui.countdownText = root.querySelector('#fa-countdown-text');
-    ui.enemyInfo = root.querySelector('#fa-enemy-info');
-    ui.enemyName = root.querySelector('#fa-enemy-name');
-    ui.enemyStars = root.querySelector('#fa-enemy-stars');
-    ui.selfInfo = root.querySelector('#fa-self-info');
-    ui.selfName = root.querySelector('#fa-self-name');
-    ui.selfStars = root.querySelector('#fa-self-stars');
-    ui.opponentName = root.querySelector('#fa-opponent-name');
-    ui.modeLine = root.querySelector('#fa-mode-line');
-    ui.friendPanel = root.querySelector('#fa-friend-panel');
-    ui.modeAi = root.querySelector('#fa-mode-ai');
-    ui.modeFriend = root.querySelector('#fa-mode-friend');
-    ui.modeFriends = root.querySelector('#fa-mode-friends');
-    ui.modeCreateRoom = root.querySelector('#fa-mode-create-room');
-    ui.roomTitleInput = root.querySelector('#fa-room-title-input');
-    ui.roomCodeInput = root.querySelector('#fa-room-code-input');
-    ui.roomCodeView = root.querySelector('#fa-room-code-view');
-    ui.roomStatus = root.querySelector('#fa-room-status');
-    ui.roomActions = ui.roomTitleInput ? ui.roomTitleInput.parentElement : null;
-    ui.createRoomBtn = root.querySelector('#fa-create-room-btn');
-    ui.joinRoomBtn = root.querySelector('#fa-join-room-btn');
-    ui.leaveRoomBtn = root.querySelector('#fa-leave-room-btn');
-    ui.friendsPanel = root.querySelector('#fa-friends-panel');
-    ui.addFriendInput = root.querySelector('#fa-add-friend-input');
-    ui.addFriendBtn = root.querySelector('#fa-add-friend-btn');
-    ui.refreshFriendsBtn = root.querySelector('#fa-refresh-friends-btn');
-    ui.friendsList = root.querySelector('#fa-friends-list');
-    ui.openRoomsPanel = root.querySelector('#fa-open-rooms-panel');
-    ui.openRoomsList = root.querySelector('#fa-open-rooms-list');
-    ui.refreshRoomsBtn = root.querySelector('#fa-refresh-rooms-btn');
-    ui.roomPresence = root.querySelector('#fa-room-presence');
-    ui.roomPresenceBadge = root.querySelector('#fa-room-presence-badge');
-    ui.roomPresenceNote = root.querySelector('#fa-room-presence-note');
-    ui.roomHostSlot = root.querySelector('#fa-room-host-slot');
-    ui.roomGuestSlot = root.querySelector('#fa-room-guest-slot');
-    ui.roomHostName = root.querySelector('#fa-room-host-name');
-    ui.roomGuestName = root.querySelector('#fa-room-guest-name');
-    ui.roomHostAvatar = root.querySelector('#fa-room-host-avatar');
-    ui.roomGuestAvatar = root.querySelector('#fa-room-guest-avatar');
-    ui.main = root.querySelector('.fa-main');
-    ui.homeScene = root.querySelector('#fa-home-scene');
-    ui.rankingScene = root.querySelector('#fa-ranking-scene');
-    ui.rankingSceneList = root.querySelector('#fa-ranking-screen-list');
-    ui.navHome = root.querySelector('#fa-nav-home');
-    ui.navAi = root.querySelector('#fa-nav-ai');
-    ui.navOnline = null;
-    ui.navCreateRoom = root.querySelector('#fa-nav-create-room');
-    ui.navFriendMatch = root.querySelector('#fa-nav-friend-match');
-    ui.navFriends = root.querySelector('#fa-nav-friends');
-    ui.navRanking = root.querySelector('#fa-nav-ranking');
-    ui.sceneTitle = root.querySelector('#fa-scene-title');
-    ui.sceneSubtitle = root.querySelector('#fa-scene-subtitle');
-    ui.homeStats = root.querySelector('#fa-home-stats');
-    ui.homeProfileName = root.querySelector('#fa-home-profile-name');
-    ui.homeProfileRank = root.querySelector('#fa-home-profile-rank');
-    ui.homeRoomLock = root.querySelector('#fa-home-room-lock');
-    ui.homeAvatar = root.querySelector('#fa-home-avatar');
 
-    root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
-    if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
-    if (ui.navAi) ui.navAi.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('ai');
-      openStartScreen();
-      navigateToScreen('ai');
-    });
-    if (ui.navCreateRoom) ui.navCreateRoom.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('friend');
-      openCreateRoomComposer();
-    });
-    if (ui.navFriendMatch) ui.navFriendMatch.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('friend');
-      openJoinRoomList();
-    });
-    if (ui.navFriends) ui.navFriends.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('friend');
-      openFriendsPanel();
-    });
-    if (ui.navRanking) ui.navRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
-    const homeAi = root.querySelector('#fa-home-go-ai');
-    const homeOnline = root.querySelector('#fa-home-go-online');
-    const homeRanking = root.querySelector('#fa-home-go-ranking');
-    if (homeAi) homeAi.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('ai');
-      openStartScreen();
-      navigateToScreen('ai');
-    });
-    if (homeOnline) homeOnline.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('friend');
-      openJoinRoomList();
-    });
-    if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
+    // Stats (home screen stats)
+    ui.totalWins    = root.querySelector('#fa-hs-wins');
+    ui.totalLosses  = root.querySelector('#fa-hs-losses');
+    ui.totalGames   = root.querySelector('#fa-hs-wins'); // reuse home
+    ui.bestTier     = root.querySelector('#fa-hs-streak');
+
+    // Sidebar-like refs reused by syncUI
+    ui.scaleLine      = { textContent: '' };  // dummy — shown in game header
+    ui.reviewLine     = { textContent: '' };  // dummy
+    ui.sideName       = root.querySelector('#fa-home-name');
+    ui.sideAvatar     = root.querySelector('#fa-home-avatar');
+    ui.selfAvatar     = root.querySelector('#fa-home-avatar');
+    ui.startAvatar    = root.querySelector('#fa-setup-avatar');
+    ui.connectionNote = { textContent: '' };  // dummy
+    ui.modeLine       = { textContent: '' };  // dummy
+    ui.currentStars   = root.querySelector('#fa-home-stars-val');
+    ui.currentStakeNote = { textContent: '' }; // dummy
+
+    // Profile / nick
+    ui.nickInput      = root.querySelector('#fa-nickname');
+    ui.nickNote       = root.querySelector('#fa-nick-note');
+    ui.nicknameEditor = root.querySelector('#fa-setup-nick-editor');
+    ui.fixedProfile   = root.querySelector('#fa-fixed-profile');
+    ui.fixedName      = root.querySelector('#fa-fixed-name');
+
+    // Lobby
+    ui.startScreen    = root.querySelector('#fa-screen-home'); // openStartScreen → home
+    ui.pauseScreen    = root.querySelector('#fa-pause-screen');
+    ui.pauseTitle     = root.querySelector('#fa-pause-title');
+    ui.pauseText      = root.querySelector('#fa-pause-text');
+    ui.lobbyText      = root.querySelector('#fa-room-status');
+    ui.lobbyResult    = root.querySelector('#fa-lobby-result');
+    ui.lobbyResultTitle = root.querySelector('#fa-lobby-result-title');
+    ui.lobbyResultText  = root.querySelector('#fa-lobby-result-text');
+    ui.lobbyConfirmActions = { classList: { toggle(){}, remove(){}, add(){} } }; // dummy
+    ui.lobbyStartActions   = { classList: { toggle(){}, remove(){}, add(){} } }; // dummy
+    ui.confirmProfileBtn   = root.querySelector('#fa-confirm-profile-btn');
+    ui.saveStart      = root.querySelector('#fa-save-start');
+
+    // Online / room
+    ui.friendPanel    = root.querySelector('#fa-friend-panel');
+    ui.modeAi         = root.querySelector('#fa-btn-play-ai');
+    ui.modeFriend     = root.querySelector('#fa-btn-play-friend');
+    ui.modeFriends    = null; // integrated into lobby
+    ui.modeCreateRoom = null; // dummy
+    ui.roomTitleInput = root.querySelector('#fa-room-title-input');
+    ui.roomCodeInput  = root.querySelector('#fa-room-code-input');
+    ui.roomCodeView   = root.querySelector('#fa-room-code-view');
+    ui.roomStatus     = root.querySelector('#fa-room-status');
+    ui.roomActions    = ui.roomTitleInput ? ui.roomTitleInput.parentElement : null;
+    ui.createRoomBtn  = root.querySelector('#fa-create-room-btn');
+    ui.joinRoomBtn    = root.querySelector('#fa-join-room-btn');
+    ui.leaveRoomBtn   = root.querySelector('#fa-leave-room-btn');
+    ui.friendsPanel   = root.querySelector('#fa-friends-panel');
+    ui.addFriendInput = null; // not in new UI
+    ui.addFriendBtn   = null;
+    ui.refreshFriendsBtn = root.querySelector('#fa-refresh-friends-btn');
+    ui.friendsList    = root.querySelector('#fa-friends-list');
+    ui.openRoomsPanel = root.querySelector('#fa-open-rooms-panel');
+    ui.openRoomsList  = root.querySelector('#fa-open-rooms-list');
+    ui.refreshRoomsBtn = root.querySelector('#fa-refresh-rooms-btn');
+    ui.roomPresence   = root.querySelector('#fa-room-presence');
+    ui.roomPresenceBadge = root.querySelector('#fa-room-presence-badge');
+    ui.roomPresenceNote  = root.querySelector('#fa-room-presence-note');
+    ui.roomHostSlot   = root.querySelector('#fa-room-host-slot');
+    ui.roomGuestSlot  = root.querySelector('#fa-room-guest-slot');
+    ui.roomHostName   = root.querySelector('#fa-room-host-name');
+    ui.roomGuestName  = root.querySelector('#fa-room-guest-name');
+    ui.roomHostAvatar = root.querySelector('#fa-room-host-avatar');
+    ui.roomGuestAvatar= root.querySelector('#fa-room-guest-avatar');
+
+    // Stake pills (new location)
+    ui.roomStakePills = Array.from(root.querySelectorAll('.fa-stake-pill'));
+
+    // Leaderboard
+    ui.leaderPreview  = root.querySelector('#fa-leader-preview');
+    ui.leaderModal    = root.querySelector('#fa-leaderboard-modal');
+    ui.leaderList     = root.querySelector('#fa-leaderboard-list');
+    ui.leaderTabTotal   = root.querySelector('#fa-leader-tab-total');
+    ui.leaderTabWeekly  = root.querySelector('#fa-leader-tab-weekly');
+    ui.leaderTabPrevious= root.querySelector('#fa-leader-tab-previous');
+
+    // Confirm modal
+    ui.confirmModal        = root.querySelector('#fa-confirm-modal');
+    ui.confirmTitle        = root.querySelector('#fa-confirm-title');
+    ui.confirmText         = root.querySelector('#fa-confirm-text');
+    ui.confirmProgress     = root.querySelector('#fa-confirm-progress');
+    ui.confirmProgressFill = root.querySelector('#fa-confirm-progress-fill');
+
+    // Board overlays
+    ui.winBurst        = root.querySelector('#fa-win-burst');
+    ui.countdownOverlay= root.querySelector('#fa-countdown-overlay');
+    ui.countdownText   = root.querySelector('#fa-countdown-text');
+    ui.placeAction     = root.querySelector('#fa-place-action');
+    ui.placeBtn        = root.querySelector('#fa-place-btn');
+    ui.enemyInfo       = root.querySelector('#fa-enemy-info');
+    ui.enemyName       = root.querySelector('#fa-enemy-name');
+    ui.enemyStars      = root.querySelector('#fa-enemy-info-stars');
+    ui.selfInfo        = root.querySelector('#fa-self-info');
+    ui.selfName        = root.querySelector('#fa-self-name');
+    ui.selfStars       = root.querySelector('#fa-self-info-stars');
+    ui.opponentName    = root.querySelector('#fa-opponent-name');
+    ui.floatingGameActions    = root.querySelector('#fa-floating-game-actions');
+    ui.floatingFullscreen     = root.querySelector('#fa-floating-fullscreen');
+    ui.floatingExitFullscreen = root.querySelector('#fa-floating-exit-fullscreen');
+
+    /* ── SCREEN ROUTER ──────────────────────────────────── */
+    const SCREENS = ['fa-screen-home','fa-screen-setup','fa-screen-lobby','fa-screen-game','fa-screen-result'];
+    function goScreen(id, slideUp = false) {
+      SCREENS.forEach(sid => {
+        const el = root.querySelector('#' + sid);
+        if (!el) return;
+        if (sid === id) {
+          el.classList.remove('exiting');
+          el.classList.add('active');
+          if (slideUp) { el.classList.add('slide-up'); requestAnimationFrame(() => { requestAnimationFrame(() => el.classList.remove('slide-up')); }); }
+        } else if (el.classList.contains('active')) {
+          el.classList.add('exiting');
+          el.classList.remove('active');
+          setTimeout(() => el.classList.remove('exiting'), 350);
+        } else {
+          el.classList.remove('active','exiting','slide-up');
+        }
+      });
+    }
+    ui._goScreen = goScreen;
+    // Patch openStartScreen to show home
+    // NOTE: actual patching done after all functions defined; we store router ref
+
+    /* ── HOME SCREEN AVATARS & LIVE STATS ──────────────── */
+    function refreshHomeStats() {
+      const hName = root.querySelector('#fa-home-name');
+      const hRank = root.querySelector('#fa-home-rank');
+      const hStars = root.querySelector('#fa-home-stars-val');
+      const hWins  = root.querySelector('#fa-hs-wins');
+      const hLosses= root.querySelector('#fa-hs-losses');
+      const hStreak= root.querySelector('#fa-hs-streak');
+      const hrpRank= root.querySelector('#fa-hrp-rank');
+      const hrpPts = root.querySelector('#fa-hrp-pts');
+      const hrpFill= root.querySelector('#fa-hrp-fill');
+      const aiLbl  = root.querySelector('#fa-ai-level-label');
+
+      if (hName) hName.textContent = state.profile ? state.profile.nickname : 'Guest';
+      if (hRank) hRank.textContent = typeof getCurrentRankFromState === 'function' ? getCurrentRankFromState() : '1 Grade';
+      if (hStars && typeof getCurrentStars === 'function') hStars.textContent = formatNumber(getCurrentStars());
+      if (hWins)  hWins.textContent  = String(state.totalWins || 0);
+      if (hLosses)hLosses.textContent= String(state.totalLosses || 0);
+      if (hStreak)hStreak.textContent= String(state.bestStreak || 0);
+
+      const rank = root.querySelector('#fa-home-avatar');
+      if (rank && state.profile) rank.setAttribute('data-avatar', state.profile.avatar || '🐻');
+
+      const progress = typeof getNextRankProgress === 'function' ? getNextRankProgress(state.gradeScore) : null;
+      if (progress) {
+        if (hrpRank) hrpRank.textContent = progress.rank;
+        if (hrpPts)  hrpPts.textContent  = progress.need === 0 ? 'Max rank' : `${progress.current} / ${progress.max} pts`;
+        if (hrpFill) hrpFill.style.width = `${progress.need === 0 ? 100 : (progress.current / progress.max) * 100}%`;
+      }
+      if (aiLbl && typeof getAiTitle === 'function') aiLbl.textContent = getAiTitle() + ' difficulty';
+    }
+    ui._refreshHomeStats = refreshHomeStats;
+
+    /* ── RESULT SCREEN HELPERS ──────────────────────────── */
+    function refreshResultScreen() {
+      const rsWins   = root.querySelector('#fa-rs-wins');
+      const rsStreak = root.querySelector('#fa-rs-streak');
+      const rsRank   = root.querySelector('#fa-rs-rank');
+      const rrLabel  = root.querySelector('#fa-result-rank-label');
+      const rrPts    = root.querySelector('#fa-result-rank-pts');
+      const rrFill   = root.querySelector('#fa-result-rank-fill');
+      if (rsWins)   rsWins.textContent   = String(state.totalWins || 0);
+      if (rsStreak) rsStreak.textContent = String(state.streak    || 0);
+      if (rsRank)   rsRank.textContent   = typeof getCurrentRankFromState === 'function' ? getCurrentRankFromState() : '1 Grade';
+      const p = typeof getNextRankProgress === 'function' ? getNextRankProgress(state.gradeScore) : null;
+      if (p) {
+        if (rrLabel) rrLabel.textContent = p.rank;
+        if (rrPts)   rrPts.textContent   = p.need === 0 ? 'Max' : `${p.current} / ${p.max}`;
+        if (rrFill)  rrFill.style.width  = `${p.need === 0 ? 100 : (p.current / p.max) * 100}%`;
+      }
+    }
+    ui._refreshResultScreen = refreshResultScreen;
+
+    /* ── PATCH openStartScreen to use router ────────────── */
+    const _origOpenStart = typeof openStartScreen !== 'undefined' ? null : null;
+    // We'll override at boot time after all fns are defined
+
+    /* ── EVENT LISTENERS ────────────────────────────────── */
+
+    // Leaderboard
+    root.querySelector('#fa-home-leaderboard-btn').addEventListener('click', openLeaderboard);
+    root.querySelector('#fa-nav-lb').addEventListener('click', openLeaderboard);
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
-    if (ui.leaderTabTotal) ui.leaderTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
-    if (ui.leaderTabWeekly) ui.leaderTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
+    if (ui.leaderTabTotal)    ui.leaderTabTotal.addEventListener('click',    () => switchLeaderboardTab('total'));
+    if (ui.leaderTabWeekly)   ui.leaderTabWeekly.addEventListener('click',   () => switchLeaderboardTab('weekly'));
     if (ui.leaderTabPrevious) ui.leaderTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
-    const rankingTabTotal = root.querySelector('#fa-ranking-tab-total');
-    const rankingTabWeekly = root.querySelector('#fa-ranking-tab-weekly');
-    const rankingTabPrevious = root.querySelector('#fa-ranking-tab-previous');
-    if (rankingTabTotal) rankingTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
-    if (rankingTabWeekly) rankingTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
-    if (rankingTabPrevious) rankingTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
-    root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
-    root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
+    ui.leaderModal.addEventListener('click', e => { if (e.target === ui.leaderModal) closeLeaderboard(); });
+
+    // Nav - profile
+    root.querySelector('#fa-nav-profile').addEventListener('click', () => goScreen('fa-screen-setup'));
+    root.querySelector('#fa-nav-home').addEventListener('click', () => { goScreen('fa-screen-home'); });
+    root.querySelector('#fa-setup-back').addEventListener('click', () => goScreen('fa-screen-home'));
+
+    // Home → mode select
+    root.querySelector('#fa-btn-play-ai').addEventListener('click', () => {
+      if (!state.profile) { goScreen('fa-screen-setup'); return; }
+      switchMatchMode('ai');
+      openStartScreen();
+    });
+    root.querySelector('#fa-btn-play-friend').addEventListener('click', () => {
+      if (!state.profile) { goScreen('fa-screen-setup'); return; }
+      switchMatchMode('friend');
+      goScreen('fa-screen-lobby');
+      refreshFriendsPanel();
+    });
+    root.querySelector('#fa-lobby-back').addEventListener('click', () => {
+      leaveOnlineRoom();
+      goScreen('fa-screen-home');
+    });
+
+    // Profile confirm
+    ui.confirmProfileBtn.addEventListener('click', confirmLobbyProfile);
+    ui.nickInput.addEventListener('keydown', e => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter') confirmLobbyProfile();
+    });
+    if (ui.saveStart) ui.saveStart.addEventListener('click', startGameFromLobby);
+    const mfsBtn = root.querySelector('#fa-mobile-fullscreen-btn');
+    if (mfsBtn) mfsBtn.addEventListener('click', () => { requestMobileFullscreen(true); startGameFromLobby(); });
+
+    // Lobby game start (shown when in lobby screen and profile confirmed)
+    const lobbyStartBtn = root.querySelector('#fa-lobby-game-start');
+    if (lobbyStartBtn) lobbyStartBtn.addEventListener('click', startGameFromLobby);
+
+    // Room actions
+    ui.createRoomBtn.addEventListener('click', createOnlineRoom);
+    ui.joinRoomBtn.addEventListener('click', openJoinRoomList);
+    ui.leaveRoomBtn.addEventListener('click', () => { leaveOnlineRoom(); });
+    if (ui.refreshRoomsBtn) ui.refreshRoomsBtn.addEventListener('click', openJoinRoomList);
+    if (ui.refreshFriendsBtn) ui.refreshFriendsBtn.addEventListener('click', refreshFriendsPanel);
+
+    if (ui.roomCodeInput) {
+      ui.roomCodeInput.addEventListener('input', () => { ui.roomCodeInput.value = normalizeRoomCode(ui.roomCodeInput.value); });
+      ui.roomCodeInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinOnlineRoom(); });
+    }
+    if (ui.roomStakePills && ui.roomStakePills.length) {
+      ui.roomStakePills.forEach(btn => btn.addEventListener('click', () => {
+        const stake = Number(btn.dataset.stake || STAR_WAGER_OPTIONS[0]);
+        if (!STAR_WAGER_OPTIONS.includes(stake)) return;
+        state.online.starWager = stake;
+        syncUI();
+      }));
+    }
+
+    // Game controls
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
-    ui.overlayConfirmBtn = root.querySelector('#fa-overlay-confirm-btn');
+    root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
+    root.querySelector('#fa-resume-btn').addEventListener('click', resumeGame);
+    root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
+    root.querySelector('#fa-floating-fullscreen').addEventListener('click', () => requestMobileFullscreen(true));
+    root.querySelector('#fa-floating-exit-fullscreen').addEventListener('click', exitMobileFullscreen);
+    const surrenderBtns = root.querySelectorAll('#fa-surrender-btn, #fa-floating-surrender');
+    surrenderBtns.forEach(b => b.addEventListener('click', surrenderOnlineMatch));
+    const floatInner = root.querySelector('#fa-float-surrender-inner');
+    const floatFsIn  = root.querySelector('#fa-float-fullscreen-inner');
+    const floatExIn  = root.querySelector('#fa-float-exit-inner');
+    if (floatInner) floatInner.addEventListener('click', surrenderOnlineMatch);
+    if (floatFsIn)  floatFsIn.addEventListener('click', () => requestMobileFullscreen(true));
+    if (floatExIn)  floatExIn.addEventListener('click', exitMobileFullscreen);
+
+    // Result actions
     root.querySelector('#fa-rematch-btn').addEventListener('click', () => { closeOverlay(); prepareMatch(); });
     root.querySelector('#fa-overlay-lobby-btn').addEventListener('click', async () => {
       closeOverlay();
@@ -2456,85 +1910,66 @@ function ordinalSuffix(n) {
       if (isOnlineMode()) await leaveOnlineRoom();
       backToLobby();
     });
-    root.querySelector('#fa-reset-score-btn').addEventListener('click', resetCareer);
-    root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
-    root.querySelector('#fa-pause-top-btn').addEventListener('click', togglePause);
-    root.querySelector('#fa-resume-btn').addEventListener('click', resumeGame);
-    root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
-    root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
-    root.querySelector('#fa-mobile-fullscreen-btn').addEventListener('click', () => { requestMobileFullscreen(true); startGameFromLobby(); });
-    root.querySelector('#fa-floating-fullscreen').addEventListener('click', () => requestMobileFullscreen(true));
-    root.querySelector('#fa-floating-exit-fullscreen').addEventListener('click', exitMobileFullscreen);
-    const floatingSurrenderBtn = root.querySelector('#fa-floating-surrender');
-    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderOnlineMatch);
-    ui.placeBtn.addEventListener('click', confirmPendingMove);
-    ui.modeAi.addEventListener('click', () => switchMatchMode('ai'));
-    ui.modeFriend.addEventListener('click', () => switchMatchMode('friend'));
-    if (ui.modeFriends) ui.modeFriends.addEventListener('click', openFriendsPanel);
-    if (ui.modeCreateRoom) ui.modeCreateRoom.addEventListener('click', openCreateRoomComposer);
-    ui.createRoomBtn.addEventListener('click', createOnlineRoom);
-    ui.joinRoomBtn.addEventListener('click', openJoinRoomList);
-    ui.leaveRoomBtn.addEventListener('click', leaveOnlineRoom);
-    if (ui.refreshRoomsBtn) ui.refreshRoomsBtn.addEventListener('click', openJoinRoomList);
-    if (ui.addFriendBtn) ui.addFriendBtn.addEventListener('click', addFriendByNickname);
-    if (ui.refreshFriendsBtn) ui.refreshFriendsBtn.addEventListener('click', refreshFriendsPanel);
-    const surrenderBtn = root.querySelector('#fa-surrender-btn');
-    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderOnlineMatch);
 
+    // Confirm modal
+    root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
+    ui.confirmModal.addEventListener('click', e => { if (e.target === ui.confirmModal) closeConfirm(); });
+
+    // Board
     ui.board.addEventListener('click', onBoardClick);
     ui.board.addEventListener('dblclick', e => e.preventDefault());
     ui.board.addEventListener('touchend', preventDoubleTapZoom, { passive: false });
-    ui.nickInput.addEventListener('keydown', e => {
-      if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === 'Enter') confirmLobbyProfile();
-    });
-    if (ui.roomCodeInput) ui.roomCodeInput.addEventListener('input', () => {
-      ui.roomCodeInput.value = normalizeRoomCode(ui.roomCodeInput.value);
-    });
-    if (ui.roomCodeInput) ui.roomCodeInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') joinOnlineRoom();
-    });
-    if (ui.roomStakePills && ui.roomStakePills.length) ui.roomStakePills.forEach(btn => btn.addEventListener('click', () => {
-      const stake = Number(btn.dataset.stake || STAR_WAGER_OPTIONS[0]);
-      if (!STAR_WAGER_OPTIONS.includes(stake)) return;
-      state.online.starWager = stake;
-      syncUI();
-    }));
-    ui.leaderModal.addEventListener('click', e => {
-      if (e.target === ui.leaderModal) closeLeaderboard();
-    });
-    ui.confirmModal.addEventListener('click', e => {
-      if (e.target === ui.confirmModal) closeConfirm();
-    });
+    ui.placeBtn.addEventListener('click', confirmPendingMove);
 
+    // Global sound on any button
     root.addEventListener('click', e => {
-      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
-      if (!btn) return;
-      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
-      try {
-        initAudio();
-        playUiTap();
-      } catch (err) {}
+      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-cta-btn, .fa-tab-chip, .fa-stake-pill, .fa-main-btn, .fa-ctrl-btn') : null;
+      if (!btn || btn.disabled) return;
+      try { initAudio(); playUiTap(); } catch {}
     }, true);
-
     root.addEventListener('keydown', e => {
-      if (!(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
-      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
-      if (!btn) return;
-      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
-      try {
-        initAudio();
-        playUiTap();
-      } catch (err) {}
+      if (!(e.key === 'Enter' || e.key === ' ')) return;
+      const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+      if (!btn || btn.disabled) return;
+      try { initAudio(); playUiTap(); } catch {}
     }, true);
 
     window.addEventListener('keydown', onGlobalKey);
-    window.addEventListener('resize', () => {
-      updateMobileMode();
-      renderBoard();
-    });
+    window.addEventListener('resize', () => { updateMobileMode(); renderBoard(); });
     document.addEventListener('fullscreenchange', updateFullscreenButtons);
     document.addEventListener('pointerdown', initAudio, { once: true });
+
+    /* ── PATCH openStartScreen & closeOverlay for screen router ── */
+    const _origClose = closeOverlay;
+    // We override these inline after boot so the screen router is used.
+    // The boot() function calls openStartScreen() which calls ui.startScreen.classList — 
+    // we map ui.startScreen = home screen, but openStartScreen also does more.
+    // Instead we'll add a MutationObserver-style approach:
+    // Whenever state.phase === 'intro' and syncUI() is called, show home screen.
+    ui._syncExtra = function() {
+      // Sync home screen stats
+      if (typeof refreshHomeStats === 'function') try { refreshHomeStats(); } catch {}
+
+      // Result screen sync
+      if (typeof refreshResultScreen === 'function' && !ui.overlay.classList.contains('hidden')) {
+        try { refreshResultScreen(); } catch {}
+      }
+
+      // Route to correct screen based on phase
+      const onHome = root.querySelector('#fa-screen-home').classList.contains('active');
+      const onSetup = root.querySelector('#fa-screen-setup').classList.contains('active');
+      const onLobby = root.querySelector('#fa-screen-lobby').classList.contains('active');
+      const onGame  = root.querySelector('#fa-screen-game').classList.contains('active');
+      const onResult= root.querySelector('#fa-screen-result').classList.contains('active');
+
+      if (state.phase === 'playing' && !onGame) {
+        goScreen('fa-screen-game');
+      }
+
+      // Sync lobby stars
+      const ls = root.querySelector('#fa-lobby-stars-val');
+      if (ls && typeof getCurrentStars === 'function') ls.textContent = formatNumber(getCurrentStars());
+    };
   }
 
   function initAudio() {
@@ -2819,19 +2254,8 @@ function ordinalSuffix(n) {
 
   function openFriendsPanel() {
     if (!isOnlineMode()) switchMatchMode('friend');
-    state.started = false;
-    state.paused = false;
-    state.phase = 'intro';
     state.online.panelMode = 'friends';
-    closeOverlay();
-    closePauseScreen();
-    clearPendingMove();
-    openStartScreen();
-    navigateToScreen(hasActiveRoomSession() ? 'room' : 'friends', { bypassLock: true });
-    if (ui.openRoomsPanel) {
-      ui.openRoomsPanel.classList.add('hidden');
-      ui.openRoomsPanel.dataset.open = '';
-    }
+    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
     refreshFriendsPanel();
@@ -3285,24 +2709,26 @@ function ordinalSuffix(n) {
     const locked = !!(state.profile && state.profile.nickname);
     const hasRoom = !!(state.online.roomId || state.online.roomCode);
     const compactFriendRoom = isOnlineMode() && hasRoom;
-    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', compactFriendRoom);
     if (ui.nicknameEditor) ui.nicknameEditor.classList.toggle('hidden', locked || compactFriendRoom);
     if (ui.fixedProfile) ui.fixedProfile.classList.toggle('hidden', !locked || compactFriendRoom);
     if (ui.fixedName) ui.fixedName.textContent = locked ? state.profile.nickname : 'Player';
+    // Show Game Start button only when profile locked and in AI mode
+    if (ui.saveStart) ui.saveStart.classList.toggle('hidden', !locked || isOnlineMode());
+    // Show lobby game start button in lobby screen
+    const lgs = document.getElementById('fa-lobby-game-start');
+    if (lgs) lgs.classList.toggle('hidden', !isOnlineMode() || !(hasRoom && state.lobbyConfirmed));
     if (compactFriendRoom) {
       state.lobbyConfirmed = true;
       if (ui.nickNote) ui.nickNote.textContent = 'Room ready. Host and guest are shown above.';
     } else if (locked) {
       state.lobbyConfirmed = true;
-      if (ui.nickNote) ui.nickNote.textContent = 'Nickname is locked. You can start immediately.';
+      if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Ready to play!';
     } else if (ui.nickNote) {
-      ui.nickNote.textContent = 'This nickname will be used for ranking and future Firebase sync.';
+      ui.nickNote.textContent = 'Enter a nickname to start playing.';
     }
   }
 
   async function confirmLobbyProfile() {
-    const hadProfileBefore = !!(state.profile && state.profile.nickname);
-    const previousNickname = state.profile?.nickname || '';
     const nickname = (ui.nickInput.value || '').trim();
     if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
       ui.nickNote.textContent = 'Use 2 to 18 letters or numbers.';
@@ -3363,15 +2789,12 @@ function ordinalSuffix(n) {
     syncLobbyActions();
     updateFullscreenButtons();
     syncUI();
-    if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
-    if (!hadProfileBefore || previousNickname !== nickname) {
-      try {
-        initAudio();
-        playRoomEventChime('create');
-        triggerHaptic('tap');
-      } catch (e) {}
-      openNoticePopup('Nickname Created', `${nickname} is ready. You can now enter matches.`, 'OK');
-    }
+    if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Ready to play!';
+    // Show start button, navigate back to home
+    if (ui.saveStart) { ui.saveStart.classList.remove('hidden'); ui.saveStart.textContent = 'Start Game'; }
+    if (ui.fixedProfile) ui.fixedProfile.classList.remove('hidden');
+    if (ui.nicknameEditor) ui.nicknameEditor.classList.add('hidden');
+    if (ui._goScreen) ui._goScreen('fa-screen-home');
     return true;
   }
 
@@ -3388,14 +2811,13 @@ function ordinalSuffix(n) {
     state.nextStarter = HUMAN;
     state.started = true;
     state.phase = 'countdown';
-    state.appScreen = 'game';
     state.paused = false;
     renderLobbyStatus();
     updateAvatars();
     updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
-    closeStartScreen();
+    if (ui._goScreen) ui._goScreen('fa-screen-game');
     requestMobileFullscreen(state.fullscreenRequested);
     syncUI();
     await startCountdownAndBeginMatch();
@@ -3507,7 +2929,6 @@ function ordinalSuffix(n) {
     clearPendingMove();
     stopTurnTimer();
     closePauseScreen();
-    closeOverlay();
     openStartScreen();
     refreshFriendsPanel();
     syncUI();
@@ -3530,12 +2951,11 @@ function ordinalSuffix(n) {
     state.paused = false;
     state.started = true;
     state.phase = 'playing';
-    state.appScreen = 'game';
     closePauseScreen();
-    closeOverlay();
     setCountdownVisible(false, '', false);
     showPendingMoveAction(false);
     updateMobileMode();
+    if (ui._goScreen) ui._goScreen('fa-screen-game');
     syncUI();
     renderBoard();
   }
@@ -3549,7 +2969,6 @@ function ordinalSuffix(n) {
   function pauseGame(title, text) {
     state.paused = true;
     state.phase = 'paused';
-    state.appScreen = 'game';
     ui.pauseTitle.textContent = title;
     ui.pauseText.textContent = text;
     ui.pauseScreen.classList.remove('hidden');
@@ -3561,7 +2980,6 @@ function ordinalSuffix(n) {
     if (!state.started) return;
     state.paused = false;
     state.phase = 'playing';
-    state.appScreen = 'game';
     closePauseScreen();
     updateMobileMode();
     syncUI();
@@ -3576,16 +2994,13 @@ function ordinalSuffix(n) {
     clearPendingMove();
     setCountdownVisible(false, '', false);
     closePauseScreen();
-    closeOverlay();
     exitMobileFullscreen();
-    openStartScreen();
-    navigateToScreen(hasActiveRoomSession() ? 'room' : (isOnlineMode() ? 'online' : 'ai'), { bypassLock: true });
     renderLeaderboard();
+    openStartScreen();
     syncUI();
   }
 
   function openStartScreen() {
-    ui.startScreen.classList.remove('hidden');
     state.phase = 'intro';
     state.started = false;
     clearPendingMove();
@@ -3594,12 +3009,22 @@ function ordinalSuffix(n) {
     updateLobbyProfileUI();
     renderLobbyStatus();
     syncLobbyActions();
+    // Route to correct screen
+    if (ui._goScreen) {
+      if (!state.profile) {
+        ui._goScreen('fa-screen-setup');
+      } else if (isOnlineMode()) {
+        ui._goScreen('fa-screen-lobby');
+      } else {
+        ui._goScreen('fa-screen-home');
+      }
+    }
     syncUI();
     publishMyProfile();
   }
 
   function closeStartScreen() {
-    ui.startScreen.classList.add('hidden');
+    // no-op in new UI — router handles screens
   }
 
   function closePauseScreen() {
@@ -3607,8 +3032,7 @@ function ordinalSuffix(n) {
   }
 
   function closeOverlay() {
-    ui.overlay.classList.add('hidden');
-    ui.overlay.classList.remove('result-pop');
+    if (ui._goScreen) ui._goScreen('fa-screen-game');
     if (ui.overlayStars) {
       ui.overlayStars.textContent = '';
       ui.overlayStars.classList.add('hidden');
@@ -3625,19 +3049,30 @@ function ordinalSuffix(n) {
     const { starsText = '', starsTone = '', confirmOnly = false } = options || {};
     ui.overlayTitle.textContent = title;
     ui.overlayText.textContent = text;
-    ui.overlay.classList.toggle('result-pop', !!confirmOnly);
     if (ui.overlayStars) {
       ui.overlayStars.textContent = starsText || '';
       ui.overlayStars.classList.toggle('hidden', !starsText);
       ui.overlayStars.classList.toggle('positive', starsTone === 'positive');
-      ui.overlayStars.classList.toggle('negative', starsTone === 'negative');
+      ui.overlayStars.classList.toggle('negative', starsTone !== 'positive' && !!starsTone);
     }
     const rematchBtn = document.getElementById('fa-rematch-btn');
     const lobbyBtn = document.getElementById('fa-overlay-lobby-btn');
     if (ui.overlayConfirmBtn) ui.overlayConfirmBtn.classList.toggle('hidden', !confirmOnly);
     if (rematchBtn) rematchBtn.classList.toggle('hidden', !!confirmOnly);
     if (lobbyBtn) lobbyBtn.classList.toggle('hidden', !!confirmOnly);
-    ui.overlay.classList.remove('hidden');
+    const iconEl = document.getElementById('fa-result-icon');
+    const bgEl   = document.getElementById('fa-result-bg');
+    if (iconEl) {
+      if (title.toLowerCase().includes('victory') || title.toLowerCase().includes('win')) {
+        iconEl.textContent = '\u{1F3C6}'; if (bgEl) bgEl.className = 'fa-result-bg win';
+      } else if (title.toLowerCase().includes('defeat') || title.toLowerCase().includes('loss')) {
+        iconEl.textContent = '\u{1F614}'; if (bgEl) bgEl.className = 'fa-result-bg loss';
+      } else {
+        iconEl.textContent = '\u{1F91D}'; if (bgEl) bgEl.className = 'fa-result-bg';
+      }
+    }
+    if (ui._refreshResultScreen) try { ui._refreshResultScreen(); } catch(e){}
+    if (ui._goScreen) ui._goScreen('fa-screen-result', true);
   }
 
 
@@ -3684,40 +3119,22 @@ function ordinalSuffix(n) {
   }
 
   function switchMatchMode(mode) {
-    if (isRoomNavigationLocked() && mode !== 'friend') {
-      navigateToScreen('room');
-      return false;
-    }
     state.matchMode = mode === 'friend' ? 'friend' : 'ai';
     if (state.matchMode === 'ai') {
       state.online.status = 'idle';
       state.online.panelMode = 'none';
-      if (!hasActiveRoomSession()) state.appScreen = 'ai';
     } else if (!(state.online.roomId || state.online.roomCode)) {
       state.online.panelMode = 'none';
-      state.appScreen = 'online';
     }
     setRoomListLocked(false);
     syncUI();
     renderLobbyStatus();
-    return true;
   }
 
   function openCreateRoomComposer() {
     if (!isOnlineMode()) switchMatchMode('friend');
-    state.started = false;
-    state.paused = false;
-    state.phase = 'intro';
     state.online.panelMode = 'create';
-    closeOverlay();
-    closePauseScreen();
-    clearPendingMove();
-    openStartScreen();
-    navigateToScreen('create-room', { bypassLock: true });
-    if (ui.openRoomsPanel) {
-      ui.openRoomsPanel.classList.add('hidden');
-      ui.openRoomsPanel.dataset.open = '';
-    }
+    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
     setRoomListLocked(false);
     syncUI();
     if (ui.roomTitleInput) setTimeout(() => ui.roomTitleInput.focus(), 0);
@@ -3924,7 +3341,6 @@ function ordinalSuffix(n) {
       state.started = false;
       state.phase = 'intro';
       openStartScreen();
-      navigateToScreen('room', { bypassLock: true });
     } else if (room.status === 'countdown') {
       stopTurnTimer();
       openStartScreen();
@@ -4019,12 +3435,9 @@ function ordinalSuffix(n) {
       const badge = locked
         ? `<div class="fa-room-item-badge locked">Private room · ★ ${formatNumber(stake)}</div>`
         : `<div class="fa-room-item-badge open">Open room · ★ ${formatNumber(stake)}</div>`;
-      const isMine = !!(state.profile && room.hostId === state.profile.id);
-      const action = isMine
-        ? `<button class="fa-btn ghost tiny" disabled>My Room</button>`
-        : locked
-          ? `<button class="fa-btn ghost tiny" data-room-locked="${roomId}">Use Code</button>`
-          : `<button class="fa-btn tiny" data-room-id="${roomId}">Join</button>`;
+      const action = locked
+        ? `<button class="fa-btn ghost tiny" data-room-locked="${roomId}">Use Code</button>`
+        : `<button class="fa-btn tiny" data-room-id="${roomId}">Join</button>`;
       return `<div class="fa-room-item"><div><div class="fa-room-item-title">${title}</div><div class="fa-room-item-meta">Host ${host}${locked ? ' · Private' : ' · Open'} · Stake ★ ${formatNumber(stake)}</div>${badge}</div>${action}</div>`;
     }).join('');
     ui.openRoomsList.querySelectorAll('[data-room-id]').forEach(btn => {
@@ -4044,15 +3457,7 @@ function ordinalSuffix(n) {
   }
 
   async function openJoinRoomList() {
-    state.started = false;
-    state.paused = false;
-    state.phase = 'intro';
     state.online.panelMode = 'join';
-    closeOverlay();
-    closePauseScreen();
-    clearPendingMove();
-    openStartScreen();
-    navigateToScreen('friend-match', { bypassLock: true });
     if (!window.firebase || !firebase.database) {
       ui.roomStatus.textContent = 'Firebase room sync is not available.';
       return;
@@ -4160,7 +3565,7 @@ function ordinalSuffix(n) {
     state.online.roomId = roomId;
     state.online.roomCode = accessCode || '';
     state.online.roomTitle = roomTitle;
-    state.online.panelMode = 'create';
+    state.online.panelMode = 'none';
     state.online.role = 'host';
     state.online.mySide = HUMAN;
     state.online.opponentName = 'Waiting...';
@@ -4172,7 +3577,6 @@ function ordinalSuffix(n) {
     state.online.guestName = '';
     state.online.lastGuestSeenId = '';
     state.online.starWager = starWager;
-    state.appScreen = 'room';
     playRoomEventChime('create');
     if (ui.roomStatus) ui.roomStatus.textContent = accessCode ? `Private room created. Share the room title and code. Stake ★ ${formatNumber(starWager)}.` : `Open room created. Your friend can join from the room list. Stake ★ ${formatNumber(starWager)}.`;
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
@@ -4226,11 +3630,6 @@ function ordinalSuffix(n) {
       ui.roomStatus.textContent = 'Room not found.';
       return;
     }
-    if (room.hostId && state.profile && room.hostId === state.profile.id && state.online.role !== 'host') {
-      ui.roomStatus.textContent = 'You cannot join your own room from another session. Leave that room first.';
-      openNoticePopup('Own Room Locked', 'You cannot enter a room you created from another session. Press Leave Room in the original room first.', 'Confirm');
-      return;
-    }
     if (room.accessCode && !roomIdOverride) {
       const typed = normalizeRoomCode(codeOverride || ui.roomCodeInput?.value);
       if (typed !== normalizeRoomCode(room.accessCode)) {
@@ -4261,7 +3660,7 @@ function ordinalSuffix(n) {
     state.online.roomId = roomId;
     state.online.roomCode = room.accessCode || room.code || '';
     state.online.roomTitle = room.title || '';
-    state.online.panelMode = room.hostId === state.profile.id ? 'create' : 'friend-match';
+    state.online.panelMode = 'none';
     state.online.role = room.hostId === state.profile.id ? 'host' : 'guest';
     state.online.mySide = state.online.role === 'host' ? HUMAN : AI;
     state.online.opponentName = state.online.role === 'host' ? (room.guestNickname || 'Waiting...') : (room.hostNickname || 'Host');
@@ -4272,7 +3671,6 @@ function ordinalSuffix(n) {
     state.online.hostName = room.hostNickname || '';
     state.online.guestName = room.guestNickname || '';
     state.online.starWager = roomWager;
-    state.appScreen = 'room';
     if (state.online.role === 'guest') playRoomEventChime('join');
     attachOnlineRoom(roomId);
     publishMyProfile();
@@ -4281,7 +3679,6 @@ function ordinalSuffix(n) {
     if (ui.openRoomsPanel) { ui.openRoomsPanel.classList.add('hidden'); ui.openRoomsPanel.dataset.open = ''; }
     if (ui.roomStatus) ui.roomStatus.textContent = `Joined ${room.title || 'room'} · Stake ★ ${formatNumber(roomWager)} · Press Ready to enter the duel.`;
     openStartScreen();
-    navigateToScreen('room', { bypassLock: true });
     refreshFriendsPanel();
     syncUI();
   }
@@ -4289,7 +3686,6 @@ function ordinalSuffix(n) {
   async function startOnlineRoomMatch() {
     if (!(state.online.roomId || state.online.roomCode) || !window.firebase || !firebase.database) {
       openStartScreen();
-      navigateToScreen('room', { bypassLock: true });
       state.started = false;
       state.phase = 'intro';
       syncUI();
@@ -4534,44 +3930,26 @@ function ordinalSuffix(n) {
     const hasRoom = !!(state.online.roomId || state.online.roomCode);
     const inFriendMode = isOnlineMode();
     const panelMode = state.online.panelMode || 'none';
-    const screen = resolveAppScreen();
-    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
-
-    const dedicatedCreate = visualScreen === 'create-room';
-    const dedicatedJoin = visualScreen === 'friend-match' || visualScreen === 'online';
-    const dedicatedFriends = visualScreen === 'friends';
-    const dedicatedRoom = visualScreen === 'room';
-
-    const showCreateComposer = inFriendMode && !hasRoom && dedicatedCreate;
-    const showJoinList = inFriendMode && !hasRoom && dedicatedJoin;
-    const showFriendsList = inFriendMode && dedicatedFriends;
-    const showRoomPresence = inFriendMode && hasRoom && dedicatedRoom;
-
-    if (ui.modeAi) ui.modeAi.classList.add('hidden');
-    if (ui.modeFriend) ui.modeFriend.classList.add('hidden');
-    if (ui.modeFriends) ui.modeFriends.classList.add('hidden');
-    if (ui.modeCreateRoom) ui.modeCreateRoom.classList.add('hidden');
-
-    if (ui.roomTitleInput) ui.roomTitleInput.classList.toggle('hidden', !showCreateComposer);
-    if (ui.roomCodeInput) ui.roomCodeInput.classList.toggle('hidden', !showCreateComposer);
-    if (ui.roomStakePills && ui.roomStakePills.length) {
-      ui.roomStakePills.forEach(btn => btn.classList.toggle('hidden', !showCreateComposer));
-      const pillsWrap = ui.roomStakePills[0].parentElement;
-      if (pillsWrap) pillsWrap.classList.toggle('hidden', !showCreateComposer);
-    }
-
-    if (ui.createRoomBtn) ui.createRoomBtn.classList.toggle('hidden', !showCreateComposer);
-    if (ui.joinRoomBtn) ui.joinRoomBtn.classList.add('hidden');
-    if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !showRoomPresence);
-    if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !showJoinList);
-    if (ui.friendsPanel) ui.friendsPanel.classList.toggle('hidden', !showFriendsList);
-    if (ui.roomPresence) ui.roomPresence.classList.toggle('hidden', !showRoomPresence);
-    if (ui.startProfile) ui.startProfile.classList.toggle('hidden', showCreateComposer || showJoinList || showFriendsList || showRoomPresence);
-    if (ui.roomActions) ui.roomActions.classList.toggle('room-locked', showRoomPresence);
-
-    if (ui.friendPanel) {
-      ui.friendPanel.classList.toggle('join-list-open', showJoinList);
-      ui.friendPanel.classList.toggle('create-room-open', showCreateComposer);
+    const joinListOpen = inFriendMode && !hasRoom && panelMode === 'join';
+    const createComposerOpen = inFriendMode && !hasRoom && panelMode === 'create';
+    const showEntryButtons = inFriendMode && !hasRoom && !joinListOpen && !createComposerOpen;
+    // New UI: all create-room fields always visible in lobby screen
+    if (ui.roomTitleInput) ui.roomTitleInput.classList.remove('hidden');
+    if (ui.roomCodeInput) ui.roomCodeInput.classList.remove('hidden');
+    if (ui.roomStakePills) ui.roomStakePills.forEach(btn => btn.classList.remove('hidden'));
+    if (ui.createRoomBtn) ui.createRoomBtn.classList.remove('hidden');
+    if (ui.joinRoomBtn) ui.joinRoomBtn.classList.toggle('hidden', hasRoom);
+    if (ui.openRoomsPanel) ui.openRoomsPanel.classList.toggle('hidden', !joinListOpen);
+    if (ui.leaveRoomBtn) ui.leaveRoomBtn.classList.toggle('hidden', !hasRoom);
+    if (ui.roomPresence) ui.roomPresence.classList.toggle('hidden', !inFriendMode || !hasRoom);
+    if (ui.friendPanel) ui.friendPanel.classList.toggle('hidden', !inFriendMode);
+    // Show lobby game start btn
+    const lgs = document.getElementById('fa-lobby-game-start');
+    if (lgs) {
+      const canStart = hasRoom && state.lobbyConfirmed &&
+        (state.online.status === 'ready' || state.online.role === 'guest');
+      lgs.classList.toggle('hidden', !canStart);
+      lgs.textContent = state.online.role === 'guest' ? 'Ready' : 'Start Match';
     }
   }
 
@@ -4615,7 +3993,6 @@ function ordinalSuffix(n) {
     if (ui.enemyInfo) ui.enemyInfo.classList.toggle('hidden', !isOnlineMode());
     if (ui.selfInfo) ui.selfInfo.classList.toggle('hidden', !isOnlineMode());
     if (ui.currentStars) ui.currentStars.textContent = formatNumber(walletStars);
-    if (ui.topStars) ui.topStars.textContent = formatNumber(walletStars);
     if (ui.currentStakeNote) ui.currentStakeNote.textContent = `Owned Stars · ★ ${formatNumber(walletStars)}`;
     if (ui.roomStakePills && ui.roomStakePills.length) {
       ui.roomStakePills.forEach(btn => {
@@ -4702,12 +4079,13 @@ function ordinalSuffix(n) {
     updateLobbyProfileUI();
     syncLobbyActions();
     updateFullscreenButtons();
-    syncAppScreen();
+    // New UI: sync home stats, result screen, routing
+    if (ui._syncExtra) try { ui._syncExtra(); } catch(e) {}
   }
 
   function updateAvatars() {
     const avatar = state.profile ? (state.profile.avatar || getAvatarBySeed(state.profile.id)) : '🐻';
-    [ui.selfAvatar, ui.startAvatar, ui.sideAvatar, ui.homeAvatar].forEach(el => {
+    [ui.selfAvatar, ui.startAvatar, ui.sideAvatar].forEach(el => {
       if (!el) return;
       el.setAttribute('data-avatar', avatar);
     });
@@ -4717,7 +4095,6 @@ function ordinalSuffix(n) {
 
   async function syncProfileToLeaderboard() {
     if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
-    const season = ensureWeeklySeason();
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -4732,24 +4109,21 @@ function ordinalSuffix(n) {
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: season.key,
+      weeklyKey: ensureWeeklySeason().key,
       stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
     upsertWeeklyLeaderboard(entry);
-    await saveWeeklyEntryToFirebase(entry);
     state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
-    await fetchFirebaseWeeklyLeaderboards(7);
   }
 
   async function openLeaderboard() {
     await renderLeaderboard(true);
-    navigateToScreen('ranking', { bypassLock: true });
+    ui.leaderModal.classList.remove('hidden');
   }
 
   function closeLeaderboard() {
     ui.leaderModal.classList.add('hidden');
-    navigateToScreen(hasActiveRoomSession() ? 'room' : (state.lastNonGameScreen || 'home'), { bypassLock: true });
   }
 
   function formatDateTimeEnglish(dateLike) {
@@ -4769,49 +4143,21 @@ function ordinalSuffix(n) {
     if (ui.leaderTabTotal) ui.leaderTabTotal.classList.toggle('active', state.leaderboardTab === 'total');
     if (ui.leaderTabWeekly) ui.leaderTabWeekly.classList.toggle('active', state.leaderboardTab === 'weekly');
     if (ui.leaderTabPrevious) ui.leaderTabPrevious.classList.toggle('active', state.leaderboardTab === 'previous');
-    const rankingTotal = document.getElementById('fa-ranking-tab-total');
-    const rankingWeekly = document.getElementById('fa-ranking-tab-weekly');
-    const rankingPrevious = document.getElementById('fa-ranking-tab-previous');
-    if (rankingTotal) rankingTotal.classList.toggle('active', state.leaderboardTab === 'total');
-    if (rankingWeekly) rankingWeekly.classList.toggle('active', state.leaderboardTab === 'weekly');
-    if (rankingPrevious) rankingPrevious.classList.toggle('active', state.leaderboardTab === 'previous');
     renderLeaderboard(true);
   }
 
   async function renderLeaderboard(full = false) {
-    let allBoard = Array.isArray(state.allLeaderboardEntries) && state.allLeaderboardEntries.length
-      ? state.allLeaderboardEntries.slice()
-      : [];
-    if (!allBoard.length) {
-      try { allBoard = await state.remoteAdapter.fetchAll(); } catch { allBoard = getLocalLeaderboard(); }
-    }
-    allBoard = Array.isArray(allBoard) ? sanitizeLeaderboardEntries(allBoard) : [];
-    const totalBoard = allBoard.slice(0, 50);
-    state.allLeaderboardEntries = allBoard;
+    let totalBoard = [];
+    try { totalBoard = await state.remoteAdapter.fetchTop(50); } catch { totalBoard = getLocalLeaderboard().slice(0, 50); }
+    totalBoard = (Array.isArray(totalBoard) ? totalBoard : []).slice(0, 50);
     state.leaderboardCache = totalBoard;
-
     const weeklySeason = ensureWeeklySeason();
-    let weeklyBoard = allBoard
-      .filter(p => String(p.weeklyKey || '') === String(weeklySeason.key) && Number(p.weeklyWins || 0) > 0)
-      .map(p => ({
-        ...p,
-        totalWins: Number(p.weeklyWins || 0),
-        totalLosses: Number(p.weeklyLosses || 0),
-        totalGames: Number(p.weeklyGames || 0)
-      }))
+    let weeklyBoard = totalBoard
+      .filter(p => (p.weeklyKey || weeklySeason.key) === weeklySeason.key && Number(p.weeklyWins || 0) > 0)
+      .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }))
       .sort(compareLeaderboard)
-      .slice(0, 7);
-
-    let sharedWeeklyMeta = null;
-    try {
-      const sharedWeekly = await fetchFirebaseWeeklyLeaderboards(7);
-      sharedWeeklyMeta = sharedWeekly?.meta || null;
-      if (sharedWeekly?.weekly?.length) weeklyBoard = sharedWeekly.weekly.slice(0, 7);
-    } catch (err) {
-      console.log('shared weekly refresh ignored:', err);
-    }
-
-    if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 7);
+      .slice(0, 50);
+    if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 50);
 
     const rankMark = i => {
       if (i === 0) return { cls: 'crown-top', label: '👑' };
@@ -4830,7 +4176,7 @@ function ordinalSuffix(n) {
         <div class="fa-rank-pos ${mark.cls}">${mark.label}</div>
         <div class="fa-rank-main">
           <div class="fa-rank-name">${escapeHtml(p.nickname)}</div>
-          <div class="fa-rank-sub">${p.totalGames || 0} games · ${p.totalWins || 0} wins · ${p.totalLosses || 0} losses${weekly ? ' · resets Sat 12:00 PM · realtime' : ' · best streak ' + (p.bestStreak || 0)}</div>
+          <div class="fa-rank-sub">${p.totalGames || 0} games · ${p.totalWins || 0} wins · ${p.totalLosses || 0} losses${weekly ? ' · resets Sat 12:00 PM' : ' · best streak ' + (p.bestStreak || 0)}</div>
         </div>
         <div class="fa-rank-badge">${escapeHtml(p.rank || '10k')}</div>
       </div>
@@ -4851,20 +4197,15 @@ function ordinalSuffix(n) {
     ui.leaderPreview.innerHTML = totalBoard.length ? totalBoard.slice(0,30).map((p,i)=>buildRow(p,i,false)).join('') : empty;
     if (full) {
       const prevSnap = getPreviousWeeklySnapshot();
-      const previousBoard = (state.sharedPreviousWeeklyLeaderboard && state.sharedPreviousWeeklyLeaderboard.length ? state.sharedPreviousWeeklyLeaderboard : getPreviousWeeklyLeaderboard()).slice(0, 7);
+      const previousBoard = getPreviousWeeklyLeaderboard().slice(0, 7);
       const activeBoard = state.leaderboardTab === 'weekly' ? weeklyBoard : state.leaderboardTab === 'previous' ? previousBoard : totalBoard;
       const weeklyHead = state.leaderboardTab === 'weekly'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.start || weeklySeason.start)} ~ ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.end || weeklySeason.end)} · Top 7 · Auto realtime update</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)} · Top 7</div>`
         : state.leaderboardTab === 'previous'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) : 'No data'} ~ ${((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) : 'No data'} · Finalized snapshot</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${prevSnap.meta?.start ? formatDateTimeEnglish(prevSnap.meta.start) : 'No data'} ~ ${prevSnap.meta?.end ? formatDateTimeEnglish(prevSnap.meta.end) : 'No data'} · Finalized snapshot</div>`
         : '';
       const displayLimit = state.leaderboardTab === 'weekly' || state.leaderboardTab === 'previous' ? 7 : 30;
-      const html = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
-      ui.leaderList.innerHTML = html;
-      if (ui.rankingSceneList) ui.rankingSceneList.innerHTML = html;
-    }
-    if (ui.rankingSceneList && !full) {
-      ui.rankingSceneList.innerHTML = ui.leaderPreview.innerHTML;
+      ui.leaderList.innerHTML = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
     }
   }
 
@@ -5477,7 +4818,7 @@ function ordinalSuffix(n) {
         c++;
         i++;
       }
-      if (c >= 5) return { win: true, line };
+      if (c === 5) return { win: true, line };
     }
     return { win: false, line: [] };
   }
@@ -5558,7 +4899,9 @@ function ordinalSuffix(n) {
       ctx.strokeStyle = 'rgba(83,229,160,.88)';
       ctx.shadowColor = 'rgba(83,229,160,.44)';
       ctx.shadowBlur = 18;
-      const ordered = winningLine.slice().sort((a, b) => a.x + a.y - (b.x + b.y));
+      const dx = winningLine.length > 1 ? Math.abs(winningLine[0].x - winningLine[winningLine.length-1].x) : 0;
+      const dy = winningLine.length > 1 ? Math.abs(winningLine[0].y - winningLine[winningLine.length-1].y) : 0;
+      const ordered = winningLine.slice().sort((a, b) => dy > dx ? a.y - b.y : a.x - b.x);
       ctx.beginPath();
       ctx.moveTo(boardCoord(ordered[0].x), boardCoord(ordered[0].y));
       ctx.lineTo(boardCoord(ordered[ordered.length - 1].x), boardCoord(ordered[ordered.length - 1].y));
@@ -5690,18 +5033,6 @@ function ordinalSuffix(n) {
     ensureViewportLock();
     restore();
     createShell();
-    try {
-      state.allLeaderboardEntries = await state.remoteAdapter.fetchAll();
-      state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
-      await fetchFirebaseWeeklyLeaderboards(7);
-      if (state.remoteAdapter.subscribeRealtime) {
-        state.remoteAdapter.subscribeRealtime(list => {
-          state.allLeaderboardEntries = Array.isArray(list) ? list : [];
-          state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
-          renderLeaderboard(!ui.leaderModal.classList.contains('hidden') || resolveAppScreen() === 'ranking');
-        });
-      }
-    } catch (e) {}
     syncUI();
     await renderLeaderboard();
     renderBoard();
@@ -5710,16 +5041,15 @@ function ordinalSuffix(n) {
       loadFriendsFromRemote();
       subscribeFriendChallenges();
       subscribeProfileInvites();
-      openStartScreen();
       ui.nickInput.value = state.profile.nickname || '';
-      ui.nickNote.textContent = 'Update nickname before starting, or continue as is.';
-    } else {
-      state.matchMode = 'ai';
+      if (ui.fixedProfile) ui.fixedProfile.classList.remove('hidden');
+      if (ui.nicknameEditor) ui.nicknameEditor.classList.add('hidden');
+      if (ui.fixedName) ui.fixedName.textContent = state.profile.nickname || '';
+      if (ui.saveStart) ui.saveStart.classList.remove('hidden');
       openStartScreen();
-      ui.nickNote.textContent = 'Set your nickname first on the home screen to enter the arena.';
+    } else {
+      openStartScreen();
     }
-    state.appScreen = 'home';
-    syncAppScreen();
     updateMobileMode();
   }
 
