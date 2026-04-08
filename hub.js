@@ -1552,6 +1552,77 @@ function ordinalSuffix(n) {
       .fa-mode-switch { display:flex; gap:10px; margin: 14px 0 12px; }
       .fa-chip { border:1px solid rgba(255,238,205,.18); background: rgba(255,248,235,.06); color:#fff6e6; border-radius:999px; padding:10px 14px; font-weight:800; cursor:pointer; }
       .fa-chip.active { background: linear-gradient(180deg, rgba(228,193,126,.28), rgba(177,126,58,.24)); box-shadow: inset 0 0 0 1px rgba(255,228,167,.18); }
+
+      .fa-chip, .fa-btn, .fa-panel, .fa-stage-card, .fa-overlay-card, .fa-rank-row, .fa-room-item, .fa-friend-row {
+        transition: transform .22s ease, box-shadow .22s ease, background .22s ease, border-color .22s ease, opacity .22s ease;
+      }
+      .fa-chip:hover, .fa-btn:hover { box-shadow: 0 14px 30px rgba(0,0,0,.24), 0 0 0 1px rgba(255,228,167,.08) inset; }
+      .fa-chip.active {
+        color:#fff7e3;
+        box-shadow: 0 10px 24px rgba(213,178,108,.16), inset 0 0 0 1px rgba(255,228,167,.18);
+      }
+      .fa-scene-head, .fa-home-hero-copy, .fa-home-hero-side, .fa-panel, .fa-stage-card, .fa-overlay-card {
+        animation: faSoftRise .36s ease both;
+      }
+      .fa-rank-row, .fa-room-item, .fa-friend-row {
+        animation: faSoftRise .28s ease both;
+      }
+      .fa-btn.primary {
+        box-shadow: 0 16px 32px rgba(122,83,31,.28), inset 0 1px 0 rgba(255,255,255,.2);
+      }
+      .fa-btn.primary:active, .fa-btn:active, .fa-chip:active {
+        transform: translateY(1px) scale(.985);
+      }
+      .fa-top-stars, .fa-wallet-box strong, .fa-rank-badge {
+        text-shadow: 0 1px 0 rgba(0,0,0,.18), 0 0 18px rgba(255,213,123,.08);
+      }
+      .fa-stage-title, .fa-modal-title, .fa-panel-title {
+        text-shadow: 0 4px 18px rgba(0,0,0,.16);
+      }
+      .fa-overlay-card.result-pop {
+        animation: faResultPop .28s cubic-bezier(.2,.8,.2,1) both;
+      }
+      .fa-board-wrap::after {
+        content:'';
+        position:absolute; inset:0;
+        background: radial-gradient(circle at 50% 20%, rgba(255,255,255,.06), transparent 40%),
+                    radial-gradient(circle at 50% 100%, rgba(255,195,96,.05), transparent 45%);
+        pointer-events:none;
+      }
+      .fa-board-ripple {
+        position:absolute;
+        width:24px; height:24px;
+        margin-left:-12px; margin-top:-12px;
+        border-radius:999px;
+        border:2px solid rgba(255,230,174,.72);
+        box-shadow: 0 0 0 0 rgba(255,216,125,.32);
+        pointer-events:none;
+        z-index:5;
+        animation: faBoardRipple .52s ease-out forwards;
+      }
+      .fa-board-ripple.light {
+        border-color: rgba(255,255,255,.8);
+        box-shadow: 0 0 0 0 rgba(255,255,255,.24);
+      }
+      .fa-floating-game-actions .fa-btn {
+        border-color: rgba(255,234,190,.18);
+      }
+      .fa-scene-nav .fa-chip.active,
+      .fa-leader-tabs .fa-chip.active {
+        background: linear-gradient(180deg, rgba(238,202,130,.34), rgba(149,104,40,.22));
+      }
+      @keyframes faSoftRise {
+        from { opacity: 0; transform: translateY(10px) scale(.988); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes faResultPop {
+        from { opacity:0; transform: translateY(14px) scale(.94); }
+        to { opacity:1; transform: translateY(0) scale(1); }
+      }
+      @keyframes faBoardRipple {
+        0% { opacity:.9; transform: scale(.2); }
+        100% { opacity:0; transform: scale(3.2); }
+      }
       .fa-friend-panel { margin: 4px 0 14px; padding: 14px; border-radius: 18px; border:1px solid rgba(255,236,205,.12); background: rgba(255,246,229,.05); }
       .fa-friend-top { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
       .fa-room-code { font-weight:900; letter-spacing:.08em; color:#ffe7b4; }
@@ -2156,13 +2227,10 @@ function ordinalSuffix(n) {
       body.fa-mobile-fullscreen .fa-board-wrap {
         min-height: 100vh;
         border-radius: 0;
-        align-items: flex-start;
-        padding: max(124px, calc(env(safe-area-inset-top) + 110px)) 10px max(106px, calc(env(safe-area-inset-bottom) + 92px));
+        padding: 10px;
       }
       body.fa-mobile-fullscreen #fa-board {
-        width: min(100vw - 20px, calc(100vh - 240px));
-        max-width: calc(100vw - 20px);
-        max-height: calc(100vh - 240px);
+        width: min(100vw - 20px, 100vh - 20px);
       }
 
       @media (max-width: 1120px) {
@@ -2850,6 +2918,18 @@ function ordinalSuffix(n) {
     setTimeout(() => slot.classList.remove('pulse'), 1200);
   }
 
+
+  function triggerBoardRipple(x, y, side) {
+    if (!ui.boardWrap) return;
+    const ripple = document.createElement('span');
+    ripple.className = 'fa-board-ripple' + (side === AI ? ' light' : '');
+    ripple.style.left = boardCoord(x) + 'px';
+    ripple.style.top = boardCoord(y) + 'px';
+    ui.boardWrap.appendChild(ripple);
+    setTimeout(() => {
+      try { ripple.remove(); } catch {}
+    }, 700);
+  }
 
   function getProfilePath(userId) {
     return 'omokProfiles/' + String(userId || '');
@@ -5094,6 +5174,7 @@ function ordinalSuffix(n) {
     state.board[y][x] = side;
     state.lastMove = { x, y, side };
     state.moveCount += 1;
+    triggerBoardRipple(x, y, side);
     state.review.push({ board: cloneBoard(state.board), lastMove: { x, y, side } });
     state.reviewIndex = state.review.length - 1;
     hitSound('stone');
