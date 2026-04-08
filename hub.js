@@ -11,6 +11,11 @@ function ordinalSuffix(n) {
   }
 
 (() => {
+  try {
+    document.documentElement.classList.add('fa-preboot-hide');
+    if (document.body) document.body.classList.add('fa-preboot-hide');
+  } catch {}
+
   const APP_NAME = 'FA gomoku';
   const STORAGE_KEY = 'fa_omok_state_v2';
   const PROFILE_KEY = 'fa_omok_profile_v2';
@@ -19,6 +24,9 @@ function ordinalSuffix(n) {
   const WEEKLY_RESET_META_KEY = 'fa_omok_weekly_reset_meta_v1';
   const WEEKLY_PREV_LEADERBOARD_KEY = 'fa_omok_weekly_prev_board_v1';
   const WEEKLY_PREV_META_KEY = 'fa_omok_weekly_prev_meta_v1';
+  const FIREBASE_WEEKLY_META_PATH = 'leaderboards/omokWeeklyMeta';
+  const FIREBASE_WEEKLY_BOARD_ROOT = 'leaderboards/omokWeekly';
+  const FIREBASE_WEEKLY_SNAPSHOT_ROOT = 'leaderboards/omokWeeklySnapshot';
   const FRIENDS_KEY = 'fa_omok_friends_v1';
   const BOARD_SIZE = 15;
   const CELL = 44;
@@ -226,8 +234,11 @@ function ordinalSuffix(n) {
       dismissedChallengeId: localStorage.getItem('fa_omok_dismissed_challenge_id') || ''
     },
     nextStarter: HUMAN,
+    sharedWeeklyLeaderboard: [],
+    sharedPreviousWeeklyLeaderboard: [],
     appScreen: 'home',
-    lastNonGameScreen: 'home'
+    lastNonGameScreen: 'home',
+    lastButtonSoundAt: 0
   };
 
   const ui = {};
@@ -262,6 +273,7 @@ function ordinalSuffix(n) {
     if (locked && !bypassLock) {
       state.appScreen = 'room';
       syncAppScreen();
+      scrollViewportToActiveScreen('room');
       return false;
     }
     if (target === 'ranking') {
@@ -274,6 +286,7 @@ function ordinalSuffix(n) {
       state.lastNonGameScreen = target;
     }
     syncAppScreen();
+    scrollViewportToActiveScreen(target);
     return true;
   }
 
@@ -286,14 +299,14 @@ function ordinalSuffix(n) {
       'fa-route-room','fa-route-game','fa-route-create-room','fa-route-friend-match','fa-route-friends'
     );
     document.body.classList.add(route);
+    document.body.classList.toggle('fa-needs-profile', !state.profile);
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
     if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
-    if (ui.main) ui.main.classList.toggle('hidden', screen === 'home' || screen === 'ranking');
+    if (ui.main) ui.main.classList.toggle('hidden', screen === 'ranking' || (screen === 'home' && !!state.profile));
 
     if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
     if (ui.navAi) ui.navAi.classList.toggle('active', visualScreen === 'ai');
-    if (ui.navOnline) ui.navOnline.classList.toggle('active', visualScreen === 'online' || screen === 'room');
     if (ui.navCreateRoom) ui.navCreateRoom.classList.toggle('active', visualScreen === 'create-room');
     if (ui.navFriendMatch) ui.navFriendMatch.classList.toggle('active', visualScreen === 'friend-match');
     if (ui.navFriends) ui.navFriends.classList.toggle('active', visualScreen === 'friends');
@@ -303,7 +316,6 @@ function ordinalSuffix(n) {
       const labels = {
         home: 'Arcade Home',
         ai: 'Ranked AI Match',
-        online: 'Online Lobby',
         'create-room': 'Create Online Room',
         'friend-match': 'Friend Match Rooms',
         friends: 'Online Friends',
@@ -314,11 +326,10 @@ function ordinalSuffix(n) {
       ui.sceneTitle.textContent = labels[visualScreen] || 'Arcade Home';
     }
     if (ui.sceneSubtitle) {
-      let sub = 'Choose a menu to move to a dedicated screen.';
+      let sub = 'Each tab opens its own full screen like a mobile game app.';
       if (screen === 'room') sub = 'You are inside a room. Leave Room before switching to another session.';
       else if (screen === 'game') sub = 'Live board and in-match actions only.';
-      else if (visualScreen === 'online') sub = 'Open the online lobby overview.';
-      else if (visualScreen === 'create-room') sub = 'Create a room immediately from this dedicated screen.';
+      else if (visualScreen === 'create-room') sub = 'Create a room immediately on this dedicated screen.';
       else if (visualScreen === 'friend-match') sub = 'See open friend rooms immediately from this dedicated screen.';
       else if (visualScreen === 'friends') sub = 'See online friends immediately from this dedicated screen.';
       else if (visualScreen === 'ai') sub = 'Start a ranked AI duel from a dedicated match screen.';
@@ -326,6 +337,56 @@ function ordinalSuffix(n) {
       ui.sceneSubtitle.textContent = sub;
     }
     updateHomeScene();
+    if (!state.profile && state.appScreen === 'home' && ui.sceneTitle) {
+      ui.sceneTitle.textContent = 'Create Your Nickname';
+      if (ui.sceneSubtitle) ui.sceneSubtitle.textContent = 'Set your nickname first, then enter each game screen like a mobile app.';
+    }
+  }
+
+  function scrollViewportToActiveScreen(screenHint = '') {
+    const screen = screenHint || resolveAppScreen();
+    const visualScreen = screen === 'online' ? getOnlineMenuScreen() : screen;
+    const target = visualScreen === 'home'
+      ? ui.homeScene
+      : visualScreen === 'ranking'
+        ? ui.rankingScene
+        : ui.main;
+
+    const containers = [ui.main, ui.homeScene, ui.rankingScene].filter(Boolean);
+    containers.forEach(el => {
+      try { el.scrollTop = 0; } catch {}
+    });
+
+    requestAnimationFrame(() => {
+      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch { window.scrollTo(0, 0); }
+      requestAnimationFrame(() => {
+        containers.forEach(el => {
+          try { el.scrollTop = 0; } catch {}
+        });
+        if (!target) return;
+        try {
+          target.scrollIntoView({ block: 'start', behavior: 'auto' });
+        } catch {}
+      });
+    });
+  }
+
+  function attachTap(el, handler) {
+    if (!el || typeof handler !== 'function') return;
+    let touched = false;
+    el.addEventListener('click', e => {
+      if (touched) {
+        touched = false;
+        return;
+      }
+      handler(e);
+    });
+    el.addEventListener('touchend', e => {
+      touched = true;
+      e.preventDefault();
+      handler(e);
+      setTimeout(() => { touched = false; }, 60);
+    }, { passive: false });
   }
 
   function updateHomeScene() {
@@ -340,8 +401,8 @@ function ordinalSuffix(n) {
     if (ui.homeProfileRank) ui.homeProfileRank.textContent = getCurrentRankFromState();
     if (ui.homeRoomLock) {
       ui.homeRoomLock.textContent = hasActiveRoomSession()
-        ? 'Room active · leave the room to move to another session.'
-        : 'No active room · you can freely move between screens.';
+        ? 'Room active · leave the room before moving to another tab.'
+        : 'No active room · each menu opens as its own app-like screen.';
     }
   }
 
@@ -599,6 +660,179 @@ function ordinalSuffix(n) {
     }
   }
 
+  async function syncFirebaseWeeklySeasonMeta(season = getWeeklyWindow()) {
+    if (!window.firebase || !firebase.database) return null;
+    try {
+      const ref = firebase.database().ref(FIREBASE_WEEKLY_META_PATH);
+      const snap = await ref.once('value');
+      const meta = snap.val() || {};
+      const current = meta.current || null;
+      if (!current || String(current.key || '') !== String(season.key)) {
+        const nextMeta = {
+          current: { key: season.key, start: season.start.getTime(), end: season.end.getTime(), updatedAt: Date.now() },
+          previous: current && current.key ? { key: current.key, start: current.start || 0, end: current.end || 0, updatedAt: Date.now() } : (meta.previous || null)
+        };
+        await ref.update(nextMeta);
+        return nextMeta;
+      }
+      return meta;
+    } catch (err) {
+      console.log('weekly meta sync ignored:', err);
+      return null;
+    }
+  }
+
+  async function fetchFirebaseWeeklyLeaderboardByKey(seasonKey, limit = 7) {
+    if (!window.firebase || !firebase.database || !seasonKey) return [];
+    try {
+      const snap = await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(seasonKey)).once('value');
+      const raw = snap.val() || {};
+      const list = Object.values(raw)
+        .filter(Boolean)
+        .map(v => ({
+          ...v,
+          totalWins: Number(v.weeklyWins || 0),
+          totalLosses: Number(v.weeklyLosses || 0),
+          totalGames: Number(v.weeklyGames || 0)
+        }));
+      return sanitizeLeaderboardEntries(list.filter(v => Number(v.totalWins || 0) > 0)).slice(0, limit);
+    } catch (err) {
+      console.log('weekly board fetch ignored:', err);
+      return [];
+    }
+  }
+
+  async function fetchFirebaseWeeklyLeaderboards(limit = 7) {
+    const season = getWeeklyWindow();
+    let meta = await syncFirebaseWeeklySeasonMeta(season);
+    if (!meta && window.firebase && firebase.database) {
+      try {
+        const snap = await firebase.database().ref(FIREBASE_WEEKLY_META_PATH).once('value');
+        meta = snap.val() || null;
+      } catch (err) {
+        console.log('weekly meta fetch ignored:', err);
+      }
+    }
+    const currentKey = String(meta?.current?.key || season.key);
+    const previousKey = String(meta?.previous?.key || '');
+
+    let totals = [];
+    try {
+      const snapshot = await firebase.database().ref('leaderboards/omok').once('value');
+      const rawTotals = snapshot.val() || {};
+      totals = sanitizeLeaderboardEntries(Object.values(rawTotals).filter(Boolean));
+    } catch (err) {
+      totals = Array.isArray(state.allLeaderboardEntries) ? sanitizeLeaderboardEntries(state.allLeaderboardEntries) : [];
+    }
+
+    let snapshotRaw = {};
+    let previousSnapshotRaw = {};
+    try {
+      const snap = await firebase.database().ref(FIREBASE_WEEKLY_SNAPSHOT_ROOT + '/' + String(currentKey)).once('value');
+      snapshotRaw = snap.val() || {};
+      if (!Object.keys(snapshotRaw).length && totals.length) {
+        const seeded = {};
+        totals.forEach(entry => {
+          seeded[entry.id] = {
+            id: entry.id,
+            nickname: entry.nickname || '',
+            totalWins: Number(entry.totalWins || 0),
+            totalLosses: Number(entry.totalLosses || 0),
+            totalGames: Number(entry.totalGames || 0),
+            createdAt: Date.now()
+          };
+        });
+        snapshotRaw = seeded;
+        try { await firebase.database().ref(FIREBASE_WEEKLY_SNAPSHOT_ROOT + '/' + String(currentKey)).set(seeded); } catch {}
+      }
+    } catch (err) {
+      console.log('weekly snapshot fetch ignored:', err);
+    }
+    if (previousKey) {
+      try {
+        const prevSnap = await firebase.database().ref(FIREBASE_WEEKLY_SNAPSHOT_ROOT + '/' + String(previousKey)).once('value');
+        previousSnapshotRaw = prevSnap.val() || {};
+      } catch (err) {
+        console.log('previous weekly snapshot fetch ignored:', err);
+      }
+    }
+
+    const currentBoardRaw = await fetchFirebaseWeeklyLeaderboardByKey(currentKey, Math.max(limit, 1000));
+    const previousBoardRaw = previousKey ? await fetchFirebaseWeeklyLeaderboardByKey(previousKey, Math.max(limit, 1000)) : [];
+
+    const currentBoardMap = new Map((currentBoardRaw || []).map(v => [v.id, v]));
+    const previousBoardMap = new Map((previousBoardRaw || []).map(v => [v.id, v]));
+
+    const derivedWeekly = totals.map(entry => {
+      const baseline = snapshotRaw?.[entry.id] || null;
+      const boardEntry = currentBoardMap.get(entry.id);
+      const deltaWins = baseline ? Math.max(0, Number(entry.totalWins || 0) - Number(baseline.totalWins || 0)) : 0;
+      const deltaLosses = baseline ? Math.max(0, Number(entry.totalLosses || 0) - Number(baseline.totalLosses || 0)) : 0;
+      const deltaGames = baseline ? Math.max(0, Number(entry.totalGames || 0) - Number(baseline.totalGames || 0)) : 0;
+      const weeklyWins = Math.max(Number(boardEntry?.totalWins || 0), deltaWins);
+      const weeklyLosses = Math.max(Number(boardEntry?.totalLosses || 0), deltaLosses);
+      const weeklyGames = Math.max(Number(boardEntry?.totalGames || 0), deltaGames);
+      return {
+        ...entry,
+        totalWins: weeklyWins,
+        totalLosses: weeklyLosses,
+        totalGames: weeklyGames,
+        weeklyWins,
+        weeklyLosses,
+        weeklyGames,
+        weeklyKey: currentKey
+      };
+    }).filter(v => Number(v.totalWins || 0) > 0);
+
+    let weekly = sanitizeLeaderboardEntries(derivedWeekly).slice(0, limit);
+    if (!weekly.length) {
+      weekly = totals.slice(0, limit).map(entry => ({
+        ...entry,
+        totalWins: Number(entry.weeklyWins || entry.totalWins || 0),
+        totalLosses: Number(entry.weeklyLosses || entry.totalLosses || 0),
+        totalGames: Number(entry.weeklyGames || entry.totalGames || 0),
+        weeklyKey: currentKey
+      }));
+    }
+
+    const derivedPrevious = totals.map(entry => {
+      const prevSnap = previousSnapshotRaw?.[entry.id] || null;
+      const boardEntry = previousBoardMap.get(entry.id);
+      const prevWins = Math.max(Number(boardEntry?.totalWins || 0), prevSnap ? Math.max(0, Number(entry.totalWins || 0) - Number(prevSnap.totalWins || 0)) : 0);
+      const prevLosses = Math.max(Number(boardEntry?.totalLosses || 0), prevSnap ? Math.max(0, Number(entry.totalLosses || 0) - Number(prevSnap.totalLosses || 0)) : 0);
+      const prevGames = Math.max(Number(boardEntry?.totalGames || 0), prevSnap ? Math.max(0, Number(entry.totalGames || 0) - Number(prevSnap.totalGames || 0)) : 0);
+      return {
+        ...entry,
+        totalWins: prevWins,
+        totalLosses: prevLosses,
+        totalGames: prevGames,
+        weeklyKey: previousKey
+      };
+    }).filter(v => Number(v.totalWins || 0) > 0);
+
+    const previous = previousKey ? sanitizeLeaderboardEntries(derivedPrevious).slice(0, limit) : [];
+    state.sharedWeeklyLeaderboard = weekly;
+    state.sharedPreviousWeeklyLeaderboard = previous;
+    return { weekly, previous, meta };
+  }
+
+  async function saveWeeklyEntryToFirebase(entry) {
+    if (!window.firebase || !firebase.database || !entry || !entry.id) return false;
+    try {
+      const season = getWeeklyWindow();
+      await syncFirebaseWeeklySeasonMeta(season);
+      await firebase.database().ref(FIREBASE_WEEKLY_BOARD_ROOT + '/' + String(season.key) + '/' + entry.id).set({
+        ...entry,
+        weeklyKey: season.key,
+        updatedAt: Date.now()
+      });
+      return true;
+    } catch (err) {
+      console.log('weekly board save ignored:', err);
+      return false;
+    }
+  }
+
   function ensureWeeklySeason() {
     const season = getWeeklyWindow();
     let meta = null;
@@ -693,8 +927,7 @@ function ordinalSuffix(n) {
             </div>
           </div>
           <div class="fa-top-actions">
-            <button class="fa-btn ghost" id="fa-open-leaderboard">Leaderboard</button>
-            <button class="fa-btn ghost" id="fa-pause-top-btn">Pause</button>
+            <div class="fa-top-stars" id="fa-top-stars">★ 10,000</div>
           </div>
         </div>
 
@@ -702,7 +935,6 @@ function ordinalSuffix(n) {
           <div class="fa-scene-nav">
             <button class="fa-chip active" id="fa-nav-home">Home</button>
             <button class="fa-chip" id="fa-nav-ai">AI Match</button>
-            <button class="fa-chip" id="fa-nav-online">Online</button>
             <button class="fa-chip" id="fa-nav-create-room">Create Room</button>
             <button class="fa-chip" id="fa-nav-friend-match">Friend Match</button>
             <button class="fa-chip" id="fa-nav-friends">Friends</button>
@@ -711,7 +943,7 @@ function ordinalSuffix(n) {
           <div class="fa-scene-head">
             <div>
               <div class="fa-scene-title" id="fa-scene-title">Arcade Home</div>
-              <div class="fa-scene-subtitle" id="fa-scene-subtitle">Choose a menu to move to a dedicated screen.</div>
+              <div class="fa-scene-subtitle" id="fa-scene-subtitle">Each tab opens its own full screen like a mobile game app.</div>
             </div>
           </div>
         </div>
@@ -725,7 +957,7 @@ function ordinalSuffix(n) {
                 <div class="fa-stage-text" style="margin-top:10px;">Move between Home, AI Match, Online Lobby, Room Waiting Room, Live Match, and Ranking Hall. When you create or join a room, the room is locked to that session until you press Leave Room.</div>
                 <div class="fa-stage-actions" style="justify-content:flex-start;">
                   <button class="fa-btn primary" id="fa-home-go-ai">Start AI Match</button>
-                  <button class="fa-btn" id="fa-home-go-online">Open Online Lobby</button>
+                  <button class="fa-btn" id="fa-home-go-online">Open Friend Match</button>
                   <button class="fa-btn ghost" id="fa-home-go-ranking">Open Ranking Hall</button>
                 </div>
               </div>
@@ -912,6 +1144,9 @@ function ordinalSuffix(n) {
                       <button class="fa-btn primary big" id="fa-save-start">Game Start</button>
                       <button class="fa-btn ghost big mobile-only" id="fa-mobile-fullscreen-btn">Play Fullscreen</button>
                     </div>
+                    <div class="fa-stage-actions hidden" id="fa-lobby-nav-actions">
+                      <button class="fa-btn ghost big" id="fa-lobby-home-btn">Lobby Home</button>
+                    </div>
                   </div>
                 </div>
 
@@ -1044,6 +1279,15 @@ function ordinalSuffix(n) {
 
     const style = document.createElement('style');
     style.textContent = `
+      .fa-preboot-hide body,
+      body.fa-preboot-hide {
+        visibility: visible !important;
+        opacity: 1 !important;
+        background:
+          radial-gradient(circle at 18% 14%, rgba(255,224,165,.24), transparent 24%),
+          radial-gradient(circle at 84% 12%, rgba(188,130,58,.18), transparent 24%),
+          linear-gradient(135deg, #5c3b20 0%, #3f2816 42%, #26170d 100%) !important;
+      }
       :root {
         --glass: rgba(255,255,255,.06);
         --line: rgba(255,255,255,.1);
@@ -1115,6 +1359,8 @@ function ordinalSuffix(n) {
       .fa-scene-title { font-size: 22px; font-weight: 900; }
       .fa-scene-subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
       .fa-home-scene, .fa-ranking-scene { position: relative; z-index:1; }
+      .fa-ranking-scene .fa-panel { max-height: none; }
+      .fa-ranking-scene .fa-modal-body { overflow:auto; -webkit-overflow-scrolling: touch; }
       .fa-home-hero {
         display:grid; grid-template-columns: minmax(0,1.2fr) minmax(320px,.8fr); gap:18px;
       }
@@ -1123,11 +1369,40 @@ function ordinalSuffix(n) {
         border:1px solid rgba(255,255,255,.08); box-shadow: var(--shadow);
       }
       .fa-home-profile { display:flex; gap:14px; align-items:center; margin-bottom:16px; }
+      .fa-home-hero-copy .fa-stage-actions { display:none !important; }
       .fa-home-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
       .fa-scene-stat { padding:16px; border-radius:18px; background: rgba(255,245,232,.05); border:1px solid rgba(255,237,206,.08); }
       .fa-scene-stat span { display:block; font-size:12px; color: var(--muted); }
       .fa-scene-stat strong { display:block; margin-top:8px; font-size:22px; }
       body.fa-route-home .fa-main, body.fa-route-ranking .fa-main { display:none !important; }
+      body.fa-route-game .fa-topbar,
+      body.fa-route-game .fa-scene-nav-wrap,
+      body.fa-route-game .fa-top-wallet-row,
+      body.fa-route-game .fa-home-scene,
+      body.fa-route-game .fa-ranking-scene,
+      body.fa-route-game .fa-right,
+      body.fa-route-game .fa-bottom { display:none !important; }
+      body.fa-route-game .fa-main {
+        display:block !important;
+        max-width:100% !important;
+        padding: 8px 10px calc(14px + env(safe-area-inset-bottom)) !important;
+      }
+      body.fa-route-game .fa-left { width:100%; }
+      body.fa-route-game .fa-panel.hero {
+        padding: 10px;
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+      }
+      body.fa-route-game .fa-board-wrap {
+        min-height: calc(100svh - 120px);
+        padding: 8px 0 0;
+      }
+      body.fa-route-game #fa-board {
+        width: min(100%, calc(100svh - 120px), 920px);
+      }
+      body.fa-needs-profile.fa-route-home .fa-main { display:grid !important; }
+      body.fa-needs-profile.fa-route-home .fa-home-scene { display:block !important; }
       body.fa-route-home #fa-home-scene { display:block !important; }
       body.fa-route-ranking #fa-ranking-scene { display:block !important; }
       body.fa-route-ai .fa-right,
@@ -1167,11 +1442,77 @@ function ordinalSuffix(n) {
       body.fa-route-friends #fa-start-screen,
       body.fa-route-room #fa-start-screen { display:grid !important; position:absolute; inset:0; }
       body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 640px); }
+      body.fa-route-ai .fa-board-wrap,
+      body.fa-route-online .fa-board-wrap,
+      body.fa-route-create-room .fa-board-wrap,
+      body.fa-route-friend-match .fa-board-wrap,
+      body.fa-route-friends .fa-board-wrap,
+      body.fa-route-room .fa-board-wrap {
+        padding: 0;
+        background: transparent;
+        box-shadow: none;
+        min-height: auto;
+      }
+      body.fa-route-ai #fa-start-screen,
+      body.fa-route-online #fa-start-screen,
+      body.fa-route-create-room #fa-start-screen,
+      body.fa-route-friend-match #fa-start-screen,
+      body.fa-route-friends #fa-start-screen,
+      body.fa-route-room #fa-start-screen {
+        position: relative;
+        inset: auto;
+        padding: 0;
+        background: transparent;
+        display: block !important;
+      }
+      body.fa-route-ai .fa-stage-card.lobby,
       body.fa-route-online .fa-stage-card.lobby,
       body.fa-route-create-room .fa-stage-card.lobby,
       body.fa-route-friend-match .fa-stage-card.lobby,
       body.fa-route-friends .fa-stage-card.lobby,
-      body.fa-route-room .fa-stage-card.lobby { width:min(100%, 720px); }
+      body.fa-route-room .fa-stage-card.lobby {
+        width: 100%;
+        max-width: 100%;
+        min-height: calc(100vh - 240px);
+        border-radius: 28px;
+        padding: 24px;
+      }
+      body.fa-route-create-room .fa-stage-card.lobby,
+      body.fa-route-friend-match .fa-stage-card.lobby,
+      body.fa-route-friends .fa-stage-card.lobby,
+      body.fa-route-room .fa-stage-card.lobby {
+        text-align: left;
+      }
+      body.fa-route-create-room .fa-stage-title,
+      body.fa-route-friend-match .fa-stage-title,
+      body.fa-route-friends .fa-stage-title,
+      body.fa-route-room .fa-stage-title {
+        font-size: 26px;
+      }
+      body.fa-route-create-room .fa-stage-actions,
+      body.fa-route-friend-match .fa-stage-actions,
+      body.fa-route-friends .fa-stage-actions,
+      body.fa-route-room .fa-stage-actions {
+        justify-content: flex-start;
+      }
+      body.fa-route-create-room .fa-lobby-text,
+      body.fa-route-friend-match .fa-lobby-text,
+      body.fa-route-friends .fa-lobby-text,
+      body.fa-route-room .fa-lobby-text {
+        max-width: 760px;
+      }
+      body.fa-route-create-room .fa-start-profile,
+      body.fa-route-friend-match .fa-start-profile,
+      body.fa-route-friends .fa-start-profile,
+      body.fa-route-room .fa-start-profile {
+        display: none !important;
+      }
+      body.fa-route-online .fa-stage-card.lobby,
+      body.fa-route-create-room .fa-stage-card.lobby,
+      body.fa-route-friend-match .fa-stage-card.lobby,
+      body.fa-route-friends .fa-stage-card.lobby,
+      body.fa-route-room .fa-stage-card.lobby,
+      body.fa-route-ai .fa-stage-card.lobby { width:min(100%, 100%); }
       body.fa-route-ai #fa-pause-screen,
       body.fa-route-ai #fa-overlay,
       body.fa-route-online #fa-pause-screen,
@@ -1197,6 +1538,7 @@ function ordinalSuffix(n) {
       body.fa-route-friends .fa-stage-card.lobby,
       body.fa-route-room .fa-stage-card.lobby { margin-top: 0; }
 
+      body.fa-route-ai .fa-mode-switch,
       body.fa-route-online .fa-mode-switch,
       body.fa-route-create-room .fa-mode-switch,
       body.fa-route-friend-match .fa-mode-switch,
@@ -1212,7 +1554,16 @@ function ordinalSuffix(n) {
       }
       .top-wallet-panel { padding: 16px 18px; }
       .fa-brand-area { display:flex; align-items:center; gap:16px; min-width:0; flex-wrap:wrap; }
-      .fa-top-actions { display: flex; gap: 10px; }
+      .fa-top-actions { display: flex; gap: 10px; align-items:center; }
+      .fa-top-stars {
+        display:inline-flex; align-items:center; justify-content:center;
+        min-height:44px; padding:0 16px; border-radius:16px;
+        background: linear-gradient(180deg, rgba(82,53,24,.96), rgba(47,28,12,.96));
+        border:1px solid rgba(255,222,150,.24);
+        color:#f2cf73; font-weight:900; letter-spacing:.02em;
+        box-shadow: 0 10px 24px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.05);
+        text-shadow: 0 1px 0 rgba(0,0,0,.18);
+      }
       .fa-brand { display: flex; align-items: center; gap: 14px; }
             .fa-brand-badge {
         width: 52px; height: 52px; border-radius: 16px;
@@ -1226,6 +1577,82 @@ function ordinalSuffix(n) {
       .fa-mode-switch { display:flex; gap:10px; margin: 14px 0 12px; }
       .fa-chip { border:1px solid rgba(255,238,205,.18); background: rgba(255,248,235,.06); color:#fff6e6; border-radius:999px; padding:10px 14px; font-weight:800; cursor:pointer; }
       .fa-chip.active { background: linear-gradient(180deg, rgba(228,193,126,.28), rgba(177,126,58,.24)); box-shadow: inset 0 0 0 1px rgba(255,228,167,.18); }
+
+      .fa-chip, .fa-btn, .fa-panel, .fa-stage-card, .fa-overlay-card, .fa-rank-row, .fa-room-item, .fa-friend-row {
+        transition: transform .22s ease, box-shadow .22s ease, background .22s ease, border-color .22s ease, opacity .22s ease;
+      }
+      .fa-chip:hover, .fa-btn:hover { box-shadow: 0 14px 30px rgba(0,0,0,.24), 0 0 0 1px rgba(255,228,167,.08) inset; }
+      .fa-chip.active {
+        color:#fff7e3;
+        box-shadow: 0 10px 24px rgba(213,178,108,.16), inset 0 0 0 1px rgba(255,228,167,.18);
+      }
+      .fa-scene-head, .fa-home-hero-copy, .fa-home-hero-side, .fa-panel, .fa-stage-card, .fa-overlay-card {
+        animation: faSoftRise .36s ease both;
+      }
+      .fa-rank-row, .fa-room-item, .fa-friend-row {
+        animation: faSoftRise .28s ease both;
+      }
+      .fa-btn.primary {
+        box-shadow: 0 16px 32px rgba(122,83,31,.28), inset 0 1px 0 rgba(255,255,255,.2);
+        animation: faGoldPulse 2.8s ease-in-out infinite;
+      }
+      .fa-btn.primary:active, .fa-btn:active, .fa-chip:active {
+        transform: translateY(1px) scale(.985);
+      }
+      .fa-top-stars, .fa-wallet-box strong, .fa-rank-badge {
+        text-shadow: 0 1px 0 rgba(0,0,0,.18), 0 0 18px rgba(255,213,123,.08);
+      }
+      .fa-stage-title, .fa-modal-title, .fa-panel-title {
+        text-shadow: 0 4px 18px rgba(0,0,0,.16);
+      }
+      .fa-overlay-card.result-pop {
+        animation: faResultPop .28s cubic-bezier(.2,.8,.2,1) both;
+      }
+      .fa-board-wrap::after {
+        content:'';
+        position:absolute; inset:0;
+        background: radial-gradient(circle at 50% 20%, rgba(255,255,255,.06), transparent 40%),
+                    radial-gradient(circle at 50% 100%, rgba(255,195,96,.05), transparent 45%);
+        pointer-events:none;
+      }
+      .fa-board-ripple {
+        position:absolute;
+        width:24px; height:24px;
+        margin-left:-12px; margin-top:-12px;
+        border-radius:999px;
+        border:2px solid rgba(255,230,174,.72);
+        box-shadow: 0 0 0 0 rgba(255,216,125,.32);
+        pointer-events:none;
+        z-index:5;
+        animation: faBoardRipple .52s ease-out forwards;
+      }
+      .fa-board-ripple.light {
+        border-color: rgba(255,255,255,.8);
+        box-shadow: 0 0 0 0 rgba(255,255,255,.24);
+      }
+      .fa-floating-game-actions .fa-btn {
+        border-color: rgba(255,234,190,.18);
+      }
+      .fa-scene-nav .fa-chip.active,
+      .fa-leader-tabs .fa-chip.active {
+        background: linear-gradient(180deg, rgba(238,202,130,.34), rgba(149,104,40,.22));
+      }
+      @keyframes faSoftRise {
+        from { opacity: 0; transform: translateY(10px) scale(.988); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes faResultPop {
+        from { opacity:0; transform: translateY(14px) scale(.94); }
+        to { opacity:1; transform: translateY(0) scale(1); }
+      }
+      @keyframes faGoldPulse {
+        0%,100% { box-shadow: 0 0 0 rgba(255,211,120,0), 0 10px 24px rgba(0,0,0,.18); }
+        50% { box-shadow: 0 0 22px rgba(255,211,120,.22), 0 14px 32px rgba(0,0,0,.22); }
+      }
+      @keyframes faBoardRipple {
+        0% { opacity:.9; transform: scale(.2); }
+        100% { opacity:0; transform: scale(3.2); }
+      }
       .fa-friend-panel { margin: 4px 0 14px; padding: 14px; border-radius: 18px; border:1px solid rgba(255,236,205,.12); background: rgba(255,246,229,.05); }
       .fa-friend-top { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
       .fa-room-code { font-weight:900; letter-spacing:.08em; color:#ffe7b4; }
@@ -1833,17 +2260,139 @@ function ordinalSuffix(n) {
         padding: 10px;
       }
       body.fa-mobile-fullscreen #fa-board {
-        width: min(100vw - 20px, 100vh - 20px);
+        width: min(100vw - 24px, 100svh - 236px);
+        margin-top: 18px;
+      }
+      body.fa-mobile-fullscreen .fa-board-wrap {
+        align-items: flex-start;
+        padding-top: max(150px, calc(env(safe-area-inset-top) + 118px));
+        padding-bottom: max(118px, calc(env(safe-area-inset-bottom) + 88px));
+      }
+      body.fa-mobile-fullscreen .fa-board-playerbar.enemy{
+        top:max(72px, calc(env(safe-area-inset-top) + 54px));
+        left:16px;
+      }
+      body.fa-mobile-fullscreen .fa-board-playerbar.self{
+        right:16px;
+        bottom:max(18px, calc(env(safe-area-inset-bottom) + 8px));
+      }
+      .fa-ranking-scene,
+      .fa-ranking-scene .fa-panel {
+        overflow: visible;
+      }
+      .fa-ranking-scene .fa-modal-body {
+        max-height: calc(100svh - 250px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       @media (max-width: 1120px) {
         .fa-main { grid-template-columns: 1fr; }
       }
+      #fa-nav-online { display:none !important; }
+      body.fa-needs-profile.fa-route-home #fa-home-scene { display:none !important; }
+      body.fa-route-ai .fa-stage-card.lobby,
+      body.fa-route-create-room .fa-stage-card.lobby,
+      body.fa-route-friend-match .fa-stage-card.lobby,
+      body.fa-route-friends .fa-stage-card.lobby,
+      body.fa-route-room .fa-stage-card.lobby {
+        min-height: calc(100svh - 210px);
+        padding: 20px;
+      }
+      body.fa-route-ai .fa-board-wrap,
+      body.fa-route-create-room .fa-board-wrap,
+      body.fa-route-friend-match .fa-board-wrap,
+      body.fa-route-friends .fa-board-wrap,
+      body.fa-route-room .fa-board-wrap {
+        min-height: calc(100svh - 210px);
+      }
       @media (max-width: 740px) {
-        #fa-home-go-ai,
-        #fa-home-go-online,
-        #fa-home-go-ranking { display: none !important; }
-        body.fa-route-home .fa-home-hero-copy .fa-stage-actions { display: none !important; }
+        body.fa-route-home .fa-home-hero {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        body.fa-route-home .fa-home-hero-copy {
+          display: none !important;
+        }
+        body.fa-route-home .fa-home-scene {
+          padding-top: 2px;
+        }
+        body.fa-route-home .fa-home-hero-side {
+          width: 100%;
+          max-width: 100%;
+          padding: 22px;
+          border-radius: 28px;
+          background:
+            linear-gradient(180deg, rgba(110,70,34,.58), rgba(63,37,18,.52)),
+            repeating-linear-gradient(90deg, rgba(255,255,255,.016) 0px, rgba(255,255,255,.016) 2px, rgba(0,0,0,.028) 2px, rgba(0,0,0,.028) 6px);
+          border: 1px solid rgba(255,236,205,.10);
+          box-shadow: 0 22px 60px rgba(0,0,0,.28);
+        }
+        body.fa-route-home .fa-home-hero-side .fa-stage-actions,
+        body.fa-route-home .fa-home-hero-side .fa-home-hero-copy,
+        body.fa-route-home .fa-home-hero-side button {
+          display: none !important;
+        }
+        body.fa-route-home .fa-home-hero-side .fa-mini-note {
+          font-size: 12px;
+          line-height: 1.45;
+        }
+        body.fa-route-home .fa-home-profile {
+          align-items: flex-start;
+          margin-bottom: 14px;
+        }
+        body.fa-route-home .fa-home-profile .fa-avatar.large {
+          width: 70px;
+          height: 70px;
+          border-radius: 18px;
+          flex: 0 0 auto;
+        }
+        body.fa-route-home .fa-home-profile .fa-name {
+          font-size: 17px;
+          font-weight: 900;
+        }
+        body.fa-route-home .fa-home-profile .fa-rank {
+          font-size: 13px;
+          color: #f1d598;
+        }
+        body.fa-route-home .fa-home-profile .fa-mini-note {
+          margin-top: 6px;
+          line-height: 1.45;
+        }
+        body.fa-route-home .fa-home-stats {
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+        body.fa-route-home .fa-home-stats {
+          margin-top: 4px;
+        }
+        body.fa-route-home .fa-home-room-lock {
+          display: block;
+          min-height: 38px;
+        }
+        body.fa-route-home .fa-scene-head {
+          padding: 12px 14px;
+        }
+        body.fa-route-home .fa-scene-title {
+          font-size: 20px;
+        }
+        body.fa-route-home .fa-scene-subtitle {
+          font-size: 12px;
+        }
+        body.fa-route-home .fa-scene-stat {
+          min-height: 84px;
+          padding: 16px 16px 14px;
+          border-radius: 18px;
+          background: rgba(255,245,232,.045);
+          border: 1px solid rgba(255,237,206,.09);
+        }
+        body.fa-route-home .fa-scene-stat strong {
+          margin-top: 10px;
+          font-size: 20px;
+        }
+        body.fa-route-home .fa-scene-stat:last-child strong {
+          color: #ffe19a;
+        }
         .fa-brand-area { width:auto; justify-content:flex-start; }
         .fa-top-wallet-row { padding: 0 14px 12px; }
         .fa-profile-main-meta { flex-direction:column; align-items:flex-start; }
@@ -1867,6 +2416,16 @@ function ordinalSuffix(n) {
         .fa-actions { width: 100%; }
         .fa-actions .fa-btn { flex: 1; }
         .fa-brand-title { font-size: 18px; }
+        .fa-scene-nav .fa-chip,
+        .fa-leader-tabs .fa-chip,
+        #fa-nav-ranking {
+          touch-action: manipulation;
+        }
+        .fa-ranking-scene .fa-modal-body {
+          max-height: calc(100svh - 214px);
+          overflow-y: auto !important;
+          -webkit-overflow-scrolling: touch;
+        }
         .fa-modal { padding: 14px; }
         .fa-modal-head { padding: 14px; }
         .fa-modal-body { padding: 14px; }
@@ -1929,6 +2488,26 @@ function ordinalSuffix(n) {
         }
         .fa-board-playerbar-name{ font-size:10px; }
         .fa-board-playerbar-stars{ font-size:10px; }
+        .fa-top-wallet-row { display:none !important; }
+        html, body, #fa-omok-app, .fa-wrap { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; }
+        .fa-wrap { display:block; }
+        .fa-topbar, .fa-scene-nav-wrap { flex: 0 0 auto; }
+        .fa-home-scene, .fa-ranking-scene, .fa-main { min-height: 0; overflow: visible; -webkit-overflow-scrolling: touch; scroll-behavior: auto; }
+        body.fa-route-ai .fa-main,
+        body.fa-route-create-room .fa-main,
+        body.fa-route-friend-match .fa-main,
+        body.fa-route-friends .fa-main,
+        body.fa-route-room .fa-main { padding-top: 0; }
+        .fa-main { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+        body.fa-route-game .fa-topbar,
+        body.fa-route-game .fa-scene-nav-wrap,
+        body.fa-route-game .fa-top-wallet-row { display:none !important; }
+        body.fa-route-game .fa-wrap { min-height: 100svh; }
+        body.fa-route-game .fa-main { padding: 0 0 calc(8px + env(safe-area-inset-bottom)) !important; }
+        body.fa-route-game .fa-panel.hero { border-radius: 0; }
+        body.fa-route-game .fa-status-row { margin-bottom: 8px; }
+        body.fa-route-game .fa-board-wrap { min-height: calc(100svh - 96px); border-radius: 0; }
+        body.fa-route-game #fa-board { width: min(100vw - 10px, 100svh - 96px); }
       }
     `;
     document.head.appendChild(style);
@@ -1970,6 +2549,7 @@ function ordinalSuffix(n) {
     ui.connectionNote = root.querySelector('#fa-connection-note');
     ui.currentStars = root.querySelector('#fa-current-stars');
     ui.currentStakeNote = root.querySelector('#fa-current-stake-note');
+    ui.topStars = root.querySelector('#fa-top-stars');
     ui.roomStakePills = Array.from(root.querySelectorAll('.fa-stake-pill'));
     ui.leaderPreview = root.querySelector('#fa-leader-preview');
     ui.leaderModal = root.querySelector('#fa-leaderboard-modal');
@@ -1992,6 +2572,8 @@ function ordinalSuffix(n) {
     ui.lobbyResultText = root.querySelector('#fa-lobby-result-text');
     ui.lobbyConfirmActions = root.querySelector('#fa-lobby-confirm-actions');
     ui.lobbyStartActions = root.querySelector('#fa-lobby-start-actions');
+    ui.lobbyNavActions = root.querySelector('#fa-lobby-nav-actions');
+    ui.lobbyHomeBtn = root.querySelector('#fa-lobby-home-btn');
     ui.confirmProfileBtn = root.querySelector('#fa-confirm-profile-btn');
     ui.saveStart = root.querySelector('#fa-save-start');
     ui.floatingGameActions = root.querySelector('#fa-floating-game-actions');
@@ -2045,7 +2627,7 @@ function ordinalSuffix(n) {
     ui.rankingSceneList = root.querySelector('#fa-ranking-screen-list');
     ui.navHome = root.querySelector('#fa-nav-home');
     ui.navAi = root.querySelector('#fa-nav-ai');
-    ui.navOnline = root.querySelector('#fa-nav-online');
+    ui.navOnline = null;
     ui.navCreateRoom = root.querySelector('#fa-nav-create-room');
     ui.navFriendMatch = root.querySelector('#fa-nav-friend-match');
     ui.navFriends = root.querySelector('#fa-nav-friends');
@@ -2058,35 +2640,35 @@ function ordinalSuffix(n) {
     ui.homeRoomLock = root.querySelector('#fa-home-room-lock');
     ui.homeAvatar = root.querySelector('#fa-home-avatar');
 
-    root.querySelector('#fa-open-leaderboard').addEventListener('click', openLeaderboard);
-    if (ui.navHome) ui.navHome.addEventListener('click', () => navigateToScreen('home'));
-    if (ui.navAi) ui.navAi.addEventListener('click', () => {
+    attachTap(ui.navHome, () => navigateToScreen('home'));
+    attachTap(ui.navAi, () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('ai');
       openStartScreen();
       navigateToScreen('ai');
     });
-    if (ui.navOnline) ui.navOnline.addEventListener('click', () => {
-      if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
-      switchMatchMode('friend');
-      openJoinRoomList();
-    });
-    if (ui.navCreateRoom) ui.navCreateRoom.addEventListener('click', () => {
+    attachTap(ui.navCreateRoom, () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
       openCreateRoomComposer();
     });
-    if (ui.navFriendMatch) ui.navFriendMatch.addEventListener('click', () => {
+    attachTap(ui.navFriendMatch, () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
       openJoinRoomList();
     });
-    if (ui.navFriends) ui.navFriends.addEventListener('click', () => {
+    attachTap(ui.navFriends, () => {
       if (isRoomNavigationLocked()) { navigateToScreen('room'); return; }
       switchMatchMode('friend');
       openFriendsPanel();
     });
-    if (ui.navRanking) ui.navRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
+    attachTap(ui.navRanking, async () => {
+      await renderLeaderboard(true);
+      navigateToScreen('ranking', { bypassLock: true });
+      try {
+        if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
+      } catch {}
+    });
     const homeAi = root.querySelector('#fa-home-go-ai');
     const homeOnline = root.querySelector('#fa-home-go-online');
     const homeRanking = root.querySelector('#fa-home-go-ranking');
@@ -2103,16 +2685,17 @@ function ordinalSuffix(n) {
     });
     if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
-    if (ui.leaderTabTotal) ui.leaderTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
-    if (ui.leaderTabWeekly) ui.leaderTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
-    if (ui.leaderTabPrevious) ui.leaderTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
+    attachTap(ui.leaderTabTotal, () => switchLeaderboardTab('total'));
+    attachTap(ui.leaderTabWeekly, () => switchLeaderboardTab('weekly'));
+    attachTap(ui.leaderTabPrevious, () => switchLeaderboardTab('previous'));
     const rankingTabTotal = root.querySelector('#fa-ranking-tab-total');
     const rankingTabWeekly = root.querySelector('#fa-ranking-tab-weekly');
     const rankingTabPrevious = root.querySelector('#fa-ranking-tab-previous');
-    if (rankingTabTotal) rankingTabTotal.addEventListener('click', () => switchLeaderboardTab('total'));
-    if (rankingTabWeekly) rankingTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
-    if (rankingTabPrevious) rankingTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
+    attachTap(rankingTabTotal, () => switchLeaderboardTab('total'));
+    attachTap(rankingTabWeekly, () => switchLeaderboardTab('weekly'));
+    attachTap(rankingTabPrevious, () => switchLeaderboardTab('previous'));
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
+    if (ui.lobbyHomeBtn) ui.lobbyHomeBtn.addEventListener('click', () => navigateToScreen('home', { bypassLock: true }));
     root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
     ui.overlayConfirmBtn = root.querySelector('#fa-overlay-confirm-btn');
@@ -2129,7 +2712,6 @@ function ordinalSuffix(n) {
     });
     root.querySelector('#fa-reset-score-btn').addEventListener('click', resetCareer);
     root.querySelector('#fa-pause-btn').addEventListener('click', togglePause);
-    root.querySelector('#fa-pause-top-btn').addEventListener('click', togglePause);
     root.querySelector('#fa-resume-btn').addEventListener('click', resumeGame);
     root.querySelector('#fa-back-lobby-btn').addEventListener('click', backToLobby);
     root.querySelector('#fa-confirm-cancel').addEventListener('click', closeConfirm);
@@ -2137,7 +2719,7 @@ function ordinalSuffix(n) {
     root.querySelector('#fa-floating-fullscreen').addEventListener('click', () => requestMobileFullscreen(true));
     root.querySelector('#fa-floating-exit-fullscreen').addEventListener('click', exitMobileFullscreen);
     const floatingSurrenderBtn = root.querySelector('#fa-floating-surrender');
-    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderOnlineMatch);
+    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderCurrentMatch);
     ui.placeBtn.addEventListener('click', confirmPendingMove);
     ui.modeAi.addEventListener('click', () => switchMatchMode('ai'));
     ui.modeFriend.addEventListener('click', () => switchMatchMode('friend'));
@@ -2150,7 +2732,7 @@ function ordinalSuffix(n) {
     if (ui.addFriendBtn) ui.addFriendBtn.addEventListener('click', addFriendByNickname);
     if (ui.refreshFriendsBtn) ui.refreshFriendsBtn.addEventListener('click', refreshFriendsPanel);
     const surrenderBtn = root.querySelector('#fa-surrender-btn');
-    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderOnlineMatch);
+    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderCurrentMatch);
 
     ui.board.addEventListener('click', onBoardClick);
     ui.board.addEventListener('dblclick', e => e.preventDefault());
@@ -2178,26 +2760,23 @@ function ordinalSuffix(n) {
       if (e.target === ui.confirmModal) closeConfirm();
     });
 
-    root.addEventListener('click', e => {
+    const delegatedButtonSound = e => {
+      if (e && e.type === 'keydown' && !(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
       const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
       if (!btn) return;
       if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
+      const now = Date.now();
+      if (now - Number(state.lastButtonSoundAt || 0) < 90) return;
+      state.lastButtonSoundAt = now;
       try {
         initAudio();
         playUiTap();
       } catch (err) {}
-    }, true);
+    };
 
-    root.addEventListener('keydown', e => {
-      if (!(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
-      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
-      if (!btn) return;
-      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
-      try {
-        initAudio();
-        playUiTap();
-      } catch (err) {}
-    }, true);
+    root.addEventListener('click', delegatedButtonSound, true);
+    root.addEventListener('touchend', delegatedButtonSound, { capture: true, passive: true });
+    root.addEventListener('keydown', delegatedButtonSound, true);
 
     window.addEventListener('keydown', onGlobalKey);
     window.addEventListener('resize', () => {
@@ -2436,6 +3015,18 @@ function ordinalSuffix(n) {
   }
 
 
+  function triggerBoardRipple(x, y, side) {
+    if (!ui.boardWrap) return;
+    const ripple = document.createElement('span');
+    ripple.className = 'fa-board-ripple' + (side === AI ? ' light' : '');
+    ripple.style.left = boardCoord(x) + 'px';
+    ripple.style.top = boardCoord(y) + 'px';
+    ui.boardWrap.appendChild(ripple);
+    setTimeout(() => {
+      try { ripple.remove(); } catch {}
+    }, 700);
+  }
+
   function getProfilePath(userId) {
     return 'omokProfiles/' + String(userId || '');
   }
@@ -2490,10 +3081,19 @@ function ordinalSuffix(n) {
 
   function openFriendsPanel() {
     if (!isOnlineMode()) switchMatchMode('friend');
+    state.started = false;
+    state.paused = false;
+    state.phase = 'intro';
     state.online.panelMode = 'friends';
+    closeOverlay();
+    closePauseScreen();
+    clearPendingMove();
     openStartScreen();
-    navigateToScreen(hasActiveRoomSession() ? 'room' : 'online', { bypassLock: true });
-    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
+    navigateToScreen(hasActiveRoomSession() ? 'room' : 'friends', { bypassLock: true });
+    if (ui.openRoomsPanel) {
+      ui.openRoomsPanel.classList.add('hidden');
+      ui.openRoomsPanel.dataset.open = '';
+    }
     setRoomListLocked(false);
     syncUI();
     refreshFriendsPanel();
@@ -2757,13 +3357,18 @@ function ordinalSuffix(n) {
     return true;
   }
 
-  async function surrenderOnlineMatch() {
-    if (!isOnlineMode() || !state.started || state.gameOver || state.phase !== 'playing') return;
+  async function surrenderCurrentMatch() {
+    if (!state.started || state.gameOver || state.phase !== 'playing') return;
     const winner = getOpponentSide();
     state.gameOver = true;
     state.winner = winner;
     state.winningLine = [];
     await finishGame(winner, [], false, 'surrender');
+    if (!isOnlineMode()) {
+      setTimeout(() => {
+        openNoticePopup('DEFEAT', 'You surrendered. Defeat recorded.', 'Confirm');
+      }, 30);
+    }
   }
 
 
@@ -2963,6 +3568,8 @@ function ordinalSuffix(n) {
   }
 
   async function confirmLobbyProfile() {
+    const hadProfileBefore = !!(state.profile && state.profile.nickname);
+    const previousNickname = state.profile?.nickname || '';
     const nickname = (ui.nickInput.value || '').trim();
     if (!/^[A-Za-z0-9 _.-]{2,18}$/.test(nickname)) {
       ui.nickNote.textContent = 'Use 2 to 18 letters or numbers.';
@@ -3024,6 +3631,14 @@ function ordinalSuffix(n) {
     updateFullscreenButtons();
     syncUI();
     if (ui.nickNote) ui.nickNote.textContent = 'Nickname saved. Press Game Start, or use Play Fullscreen on mobile.';
+    if (!hadProfileBefore || previousNickname !== nickname) {
+      try {
+        initAudio();
+        playRoomEventChime('create');
+        triggerHaptic('tap');
+      } catch (e) {}
+      openNoticePopup('Nickname Created', `${nickname} is ready. You can now enter matches.`, 'OK');
+    }
     return true;
   }
 
@@ -3057,16 +3672,23 @@ function ordinalSuffix(n) {
     if (!ui.lobbyConfirmActions || !ui.lobbyStartActions) return;
     ui.lobbyConfirmActions.classList.toggle('hidden', !!state.lobbyConfirmed);
     ui.lobbyStartActions.classList.toggle('hidden', !state.lobbyConfirmed);
+    if (ui.lobbyNavActions) {
+      const showLobbyHome = !!state.lobbyConfirmed && !isOnlineMode();
+      ui.lobbyNavActions.classList.toggle('hidden', !showLobbyHome);
+    }
   }
 
 
   function updateTurnTimerLabel() {
     if (!ui.turnTimer) return;
-    const visible = isOnlineMode() && state.phase === 'playing' && state.started && !state.gameOver;
+    const visible = state.phase === 'playing' && state.started && !state.gameOver;
     ui.turnTimer.classList.toggle('hidden', !visible);
     if (!visible) return;
     const secs = Math.max(0, Number(state.turnSecondsLeft || 0));
-    ui.turnTimer.textContent = `Turn ${secs}`;
+    const owner = isOnlineMode()
+      ? (state.turn === getMySide() ? 'My Turn' : 'Enemy Turn')
+      : (state.turn === HUMAN ? 'My Turn' : 'AI Turn');
+    ui.turnTimer.textContent = `${owner} ${secs}`;
     ui.turnTimer.classList.toggle('warning', secs <= 15 && secs > 5);
     ui.turnTimer.classList.toggle('danger', secs <= 5);
   }
@@ -3079,6 +3701,11 @@ function ordinalSuffix(n) {
     state.turnSecondsLeft = 60;
     state.turnLastAudioSecond = null;
     updateTurnTimerLabel();
+  }
+
+  function isTimedTurnLoserOnTimeout() {
+    if (isOnlineMode()) return state.turn;
+    return state.turn === HUMAN ? HUMAN : 0;
   }
 
   async function claimOnlineTimeoutLoss() {
@@ -3112,9 +3739,17 @@ function ordinalSuffix(n) {
 
   function startTurnTimer() {
     stopTurnTimer();
-    if (!isOnlineMode() || state.phase !== 'playing' || state.gameOver || !state.started) return;
+    if (state.phase !== 'playing' || state.gameOver || !state.started) return;
+    if (!isOnlineMode() && state.turn !== HUMAN) {
+      state.turnSecondsLeft = 60;
+      updateTurnTimerLabel();
+      return;
+    }
+    const localExpiresAt = Date.now() + TURN_LIMIT_MS;
     const tick = () => {
-      const expiresAt = Number(state.online.turnExpiresAt || 0);
+      const expiresAt = isOnlineMode()
+        ? Number(state.online.turnExpiresAt || 0)
+        : localExpiresAt;
       const secs = expiresAt ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : 60;
       state.turnSecondsLeft = secs;
       updateTurnTimerLabel();
@@ -3128,7 +3763,14 @@ function ordinalSuffix(n) {
       }
       if (secs <= 0) {
         stopTurnTimer();
-        claimOnlineTimeoutLoss();
+        if (isOnlineMode()) {
+          claimOnlineTimeoutLoss();
+        } else if (state.phase === 'playing' && state.started && !state.gameOver && state.turn === HUMAN) {
+          state.gameOver = true;
+          state.winner = AI;
+          state.winningLine = [];
+          finishGame(AI, [], false, 'clock');
+        }
       }
       if (ui.roomStatus && isOnlineMode() && state.online.status === 'playing') {
         const turnLabel = state.turn === getMySide() ? 'Your turn' : 'Friend turn';
@@ -3187,6 +3829,7 @@ function ordinalSuffix(n) {
     closeOverlay();
     setCountdownVisible(false, '', false);
     showPendingMoveAction(false);
+    startTurnTimer();
     updateMobileMode();
     syncUI();
     renderBoard();
@@ -3357,10 +4000,19 @@ function ordinalSuffix(n) {
 
   function openCreateRoomComposer() {
     if (!isOnlineMode()) switchMatchMode('friend');
+    state.started = false;
+    state.paused = false;
+    state.phase = 'intro';
     state.online.panelMode = 'create';
+    closeOverlay();
+    closePauseScreen();
+    clearPendingMove();
     openStartScreen();
     navigateToScreen('create-room', { bypassLock: true });
-    if (ui.openRoomsPanel) ui.openRoomsPanel.dataset.open = '';
+    if (ui.openRoomsPanel) {
+      ui.openRoomsPanel.classList.add('hidden');
+      ui.openRoomsPanel.dataset.open = '';
+    }
     setRoomListLocked(false);
     syncUI();
     if (ui.roomTitleInput) setTimeout(() => ui.roomTitleInput.focus(), 0);
@@ -3687,7 +4339,13 @@ function ordinalSuffix(n) {
   }
 
   async function openJoinRoomList() {
+    state.started = false;
+    state.paused = false;
+    state.phase = 'intro';
     state.online.panelMode = 'join';
+    closeOverlay();
+    closePauseScreen();
+    clearPendingMove();
     openStartScreen();
     navigateToScreen('friend-match', { bypassLock: true });
     if (!window.firebase || !firebase.database) {
@@ -4184,7 +4842,7 @@ function ordinalSuffix(n) {
     const showFriendsList = inFriendMode && dedicatedFriends;
     const showRoomPresence = inFriendMode && hasRoom && dedicatedRoom;
 
-    if (ui.modeAi) ui.modeAi.classList.toggle('hidden', visualScreen !== 'ai' && visualScreen !== 'home');
+    if (ui.modeAi) ui.modeAi.classList.add('hidden');
     if (ui.modeFriend) ui.modeFriend.classList.add('hidden');
     if (ui.modeFriends) ui.modeFriends.classList.add('hidden');
     if (ui.modeCreateRoom) ui.modeCreateRoom.classList.add('hidden');
@@ -4253,6 +4911,7 @@ function ordinalSuffix(n) {
     if (ui.selfInfo) ui.selfInfo.classList.toggle('hidden', !isOnlineMode());
     if (ui.currentStars) ui.currentStars.textContent = formatNumber(walletStars);
     if (ui.currentStakeNote) ui.currentStakeNote.textContent = `Owned Stars · ★ ${formatNumber(walletStars)}`;
+    if (ui.topStars) ui.topStars.textContent = `★ ${formatNumber(walletStars)}`;
     if (ui.roomStakePills && ui.roomStakePills.length) {
       ui.roomStakePills.forEach(btn => {
         const stake = Number(btn.dataset.stake || 0);
@@ -4275,9 +4934,10 @@ function ordinalSuffix(n) {
     const newGameBtn = ui.root.querySelector('#fa-newgame-btn');
     const pauseBtn = ui.root.querySelector('#fa-pause-btn');
     const resetCareerBtn = ui.root.querySelector('#fa-reset-score-btn');
-    const onlinePlayingOnlySurrender = !!(isOnlineMode() && state.phase === 'playing' && state.started && !state.gameOver);
-    if (surrenderBtn) surrenderBtn.classList.toggle('hidden', !onlinePlayingOnlySurrender);
-    if (floatingSurrenderBtn) floatingSurrenderBtn.classList.toggle('hidden', !onlinePlayingOnlySurrender);
+    const playingSurrenderAvailable = !!(state.phase === 'playing' && state.started && !state.gameOver);
+    const onlinePlayingOnlySurrender = !!(isOnlineMode() && playingSurrenderAvailable);
+    if (surrenderBtn) surrenderBtn.classList.toggle('hidden', !playingSurrenderAvailable);
+    if (floatingSurrenderBtn) floatingSurrenderBtn.classList.toggle('hidden', !playingSurrenderAvailable);
     if (newGameBtn) newGameBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
     if (pauseBtn) pauseBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
     if (resetCareerBtn) resetCareerBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
@@ -4353,6 +5013,7 @@ function ordinalSuffix(n) {
 
   async function syncProfileToLeaderboard() {
     if (!state.profile || state.totalGames <= 0 || !isRankedAiMatch()) return;
+    const season = ensureWeeklySeason();
     const entry = {
       id: state.profile.id,
       nickname: state.profile.nickname,
@@ -4367,12 +5028,14 @@ function ordinalSuffix(n) {
       weeklyWins: Number((state.profile && state.profile.weeklyWins) || 0),
       weeklyLosses: Number((state.profile && state.profile.weeklyLosses) || 0),
       weeklyGames: Number((state.profile && state.profile.weeklyGames) || 0),
-      weeklyKey: ensureWeeklySeason().key,
+      weeklyKey: season.key,
       stars: getCurrentStars()
     };
     await state.remoteAdapter.saveEntry(entry);
     upsertWeeklyLeaderboard(entry);
+    await saveWeeklyEntryToFirebase(entry);
     state.leaderboardCache = await state.remoteAdapter.fetchTop(50);
+    await fetchFirebaseWeeklyLeaderboards(7);
   }
 
   async function openLeaderboard() {
@@ -4435,6 +5098,15 @@ function ordinalSuffix(n) {
       .sort(compareLeaderboard)
       .slice(0, 7);
 
+    let sharedWeeklyMeta = null;
+    try {
+      const sharedWeekly = await fetchFirebaseWeeklyLeaderboards(7);
+      sharedWeeklyMeta = sharedWeekly?.meta || null;
+      if (sharedWeekly?.weekly?.length) weeklyBoard = sharedWeekly.weekly.slice(0, 7);
+    } catch (err) {
+      console.log('shared weekly refresh ignored:', err);
+    }
+
     if (!weeklyBoard.length) weeklyBoard = getWeeklyLeaderboard().slice(0, 7);
 
     const rankMark = i => {
@@ -4475,12 +5147,12 @@ function ordinalSuffix(n) {
     ui.leaderPreview.innerHTML = totalBoard.length ? totalBoard.slice(0,30).map((p,i)=>buildRow(p,i,false)).join('') : empty;
     if (full) {
       const prevSnap = getPreviousWeeklySnapshot();
-      const previousBoard = getPreviousWeeklyLeaderboard().slice(0, 7);
+      const previousBoard = (state.sharedPreviousWeeklyLeaderboard && state.sharedPreviousWeeklyLeaderboard.length ? state.sharedPreviousWeeklyLeaderboard : getPreviousWeeklyLeaderboard()).slice(0, 7);
       const activeBoard = state.leaderboardTab === 'weekly' ? weeklyBoard : state.leaderboardTab === 'previous' ? previousBoard : totalBoard;
       const weeklyHead = state.leaderboardTab === 'weekly'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(weeklySeason.start)} ~ ${formatDateTimeEnglish(weeklySeason.end)} · Top 7 · Auto realtime update</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Weekly season: ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.start || weeklySeason.start)} ~ ${formatDateTimeEnglish(sharedWeeklyMeta?.current?.end || weeklySeason.end)} · Top 7 · Auto realtime update</div>`
         : state.leaderboardTab === 'previous'
-        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${prevSnap.meta?.start ? formatDateTimeEnglish(prevSnap.meta.start) : 'No data'} ~ ${prevSnap.meta?.end ? formatDateTimeEnglish(prevSnap.meta.end) : 'No data'} · Finalized snapshot</div>`
+        ? `<div class="fa-mini-note" style="margin:0 0 12px 0;">Previous season: ${((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.start) || prevSnap.meta?.start) : 'No data'} ~ ${((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) ? formatDateTimeEnglish((sharedWeeklyMeta?.previous?.end) || prevSnap.meta?.end) : 'No data'} · Finalized snapshot</div>`
         : '';
       const displayLimit = state.leaderboardTab === 'weekly' || state.leaderboardTab === 'previous' ? 7 : 30;
       const html = weeklyHead + (activeBoard.length ? activeBoard.slice(0, displayLimit).map((p,i)=>buildRow(p,i,state.leaderboardTab !== 'total')).join('') : empty);
@@ -4588,6 +5260,7 @@ function ordinalSuffix(n) {
     if (state.gameOver) return;
 
     state.turn = AI;
+    startTurnTimer();
     syncUI();
     state.pendingLock = true;
     setTimeout(aiTurn, 150 + Math.min(350, state.streak * 35));
@@ -4597,6 +5270,7 @@ function ordinalSuffix(n) {
     state.board[y][x] = side;
     state.lastMove = { x, y, side };
     state.moveCount += 1;
+    triggerBoardRipple(x, y, side);
     state.review.push({ board: cloneBoard(state.board), lastMove: { x, y, side } });
     state.reviewIndex = state.review.length - 1;
     hitSound('stone');
@@ -4618,6 +5292,7 @@ function ordinalSuffix(n) {
       return;
     }
     state.turn = side === HUMAN ? AI : HUMAN;
+    startTurnTimer();
     syncUI();
   }
 
@@ -4690,6 +5365,7 @@ function ordinalSuffix(n) {
     state.started = false;
     closePauseScreen();
     closeOverlay();
+    state.appScreen = 'home';
     syncUI();
     await renderLeaderboard();
     renderBoard(undefined, undefined, line);
@@ -4736,11 +5412,27 @@ function ordinalSuffix(n) {
       } catch (e) {
         console.log('post-finish room reset ignored:', e);
       }
-      showOverlay(title, text + (getCurrentStars() < normalizeStarWager(state.online.starWager, STAR_WAGER_OPTIONS[0]) ? ' Not enough stars for rematch, so you will leave the room.' : ' Stay in the room and press Ready for an immediate rematch.'), { starsText, starsTone, confirmOnly: false });
+
+      const popupTitle = winner === mySide ? 'VICTORY' : winner === oppSide ? 'LOSS' : 'DRAW';
+      const popupTextParts = [
+        winner === mySide ? 'You won the match.' : winner === oppSide ? 'You lost the match.' : 'The match ended in a draw.'
+      ];
+      if (starsText) popupTextParts.push(starsText);
+      if (getCurrentStars() < normalizeStarWager(state.online.starWager, STAR_WAGER_OPTIONS[0])) {
+        popupTextParts.push('You do not have enough stars for an instant rematch, so leave the room before playing again.');
+      } else {
+        popupTextParts.push('Stay in the room and press Ready for an instant rematch.');
+      }
+      try {
+        initAudio();
+        playRoomEventChime(winner === mySide ? 'create' : 'join');
+      } catch (e) {}
+      openNoticePopup(popupTitle, popupTextParts.join(' '), 'OK');
       return;
     }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        state.appScreen = isOnlineMode() ? 'room' : 'ai';
         openStartScreen();
         syncUI();
       });
@@ -5317,6 +6009,7 @@ function ordinalSuffix(n) {
     try {
       state.allLeaderboardEntries = await state.remoteAdapter.fetchAll();
       state.leaderboardCache = state.allLeaderboardEntries.slice(0, 50);
+      await fetchFirebaseWeeklyLeaderboards(7);
       if (state.remoteAdapter.subscribeRealtime) {
         state.remoteAdapter.subscribeRealtime(list => {
           state.allLeaderboardEntries = Array.isArray(list) ? list : [];
@@ -5337,11 +6030,21 @@ function ordinalSuffix(n) {
       ui.nickInput.value = state.profile.nickname || '';
       ui.nickNote.textContent = 'Update nickname before starting, or continue as is.';
     } else {
+      state.matchMode = 'ai';
       openStartScreen();
+      ui.nickNote.textContent = 'Set your nickname first on the home screen to enter the arena.';
     }
-    state.appScreen = state.profile ? 'home' : 'home';
+    state.appScreen = 'home';
     syncAppScreen();
     updateMobileMode();
+    try {
+      document.documentElement.classList.remove('fa-preboot-hide');
+      if (document.body) document.body.classList.remove('fa-preboot-hide');
+      if (document.body) {
+        document.body.style.visibility = '';
+        document.body.style.opacity = '';
+      }
+    } catch {}
   }
 
   if (document.readyState === 'loading') {
