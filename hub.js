@@ -12,6 +12,8 @@ function ordinalSuffix(n) {
 
 (() => {
   try {
+    if (document.documentElement) document.documentElement.classList.add('fa-app-not-ready');
+    if (document.body) document.body.classList.add('fa-app-not-ready');
     document.documentElement.classList.add('fa-preboot-hide');
     if (document.body) document.body.classList.add('fa-preboot-hide');
   } catch {}
@@ -302,7 +304,11 @@ function ordinalSuffix(n) {
     document.body.classList.toggle('fa-needs-profile', !state.profile);
 
     if (ui.homeScene) ui.homeScene.classList.toggle('hidden', screen !== 'home');
-    if (ui.rankingScene) ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
+    if (ui.rankingScene) {
+      ui.rankingScene.classList.toggle('hidden', screen !== 'ranking');
+      if (screen === 'ranking') ui.rankingScene.style.display = 'block';
+      else ui.rankingScene.style.display = '';
+    }
     if (ui.main) ui.main.classList.toggle('hidden', screen === 'ranking' || (screen === 'home' && !!state.profile));
 
     if (ui.navHome) ui.navHome.classList.toggle('active', visualScreen === 'home');
@@ -1287,6 +1293,22 @@ function ordinalSuffix(n) {
           radial-gradient(circle at 18% 14%, rgba(255,224,165,.24), transparent 24%),
           radial-gradient(circle at 84% 12%, rgba(188,130,58,.18), transparent 24%),
           linear-gradient(135deg, #5c3b20 0%, #3f2816 42%, #26170d 100%) !important;
+      }
+      html.fa-app-not-ready body,
+      body.fa-app-not-ready {
+        overflow: hidden !important;
+      }
+      body.fa-app-not-ready .fa-topbar,
+      body.fa-app-not-ready .fa-scene-nav-wrap,
+      body.fa-app-not-ready .fa-top-wallet-row,
+      body.fa-app-not-ready .fa-main,
+      body.fa-app-not-ready .fa-home-scene,
+      body.fa-app-not-ready .fa-ranking-scene,
+      body.fa-app-not-ready .fa-modal,
+      body.fa-app-not-ready .fa-overlay,
+      body.fa-app-not-ready .fa-stage {
+        visibility: hidden !important;
+        opacity: 0 !important;
       }
       :root {
         --glass: rgba(255,255,255,.06);
@@ -2663,8 +2685,13 @@ function ordinalSuffix(n) {
       openFriendsPanel();
     });
     attachTap(ui.navRanking, async () => {
-      await renderLeaderboard(true);
       navigateToScreen('ranking', { bypassLock: true });
+      try {
+        if (ui.rankingScene) ui.rankingScene.classList.remove('hidden');
+        if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
+        window.scrollTo(0, 0);
+      } catch {}
+      await renderLeaderboard(true);
       try {
         if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
       } catch {}
@@ -2683,7 +2710,13 @@ function ordinalSuffix(n) {
       switchMatchMode('friend');
       openJoinRoomList();
     });
-    if (homeRanking) homeRanking.addEventListener('click', () => navigateToScreen('ranking', { bypassLock: true }));
+    if (homeRanking) homeRanking.addEventListener('click', async () => {
+      navigateToScreen('ranking', { bypassLock: true });
+      await renderLeaderboard(true);
+      try {
+        if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
+      } catch {}
+    });
     root.querySelector('#fa-close-leaderboard').addEventListener('click', closeLeaderboard);
     attachTap(ui.leaderTabTotal, () => switchLeaderboardTab('total'));
     attachTap(ui.leaderTabWeekly, () => switchLeaderboardTab('weekly'));
@@ -2694,6 +2727,16 @@ function ordinalSuffix(n) {
     attachTap(rankingTabTotal, () => switchLeaderboardTab('total'));
     attachTap(rankingTabWeekly, () => switchLeaderboardTab('weekly'));
     attachTap(rankingTabPrevious, () => switchLeaderboardTab('previous'));
+    if (ui.navRanking) {
+      ui.navRanking.addEventListener('touchstart', async (e) => {
+        e.preventDefault();
+        navigateToScreen('ranking', { bypassLock: true });
+        await renderLeaderboard(true);
+        try {
+          if (ui.rankingSceneList) ui.rankingSceneList.scrollTop = 0;
+        } catch {}
+      }, { passive: false });
+    }
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
     if (ui.lobbyHomeBtn) ui.lobbyHomeBtn.addEventListener('click', () => navigateToScreen('home', { bypassLock: true }));
     root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
@@ -6018,9 +6061,11 @@ function ordinalSuffix(n) {
         });
       }
     } catch (e) {}
+    state.appScreen = 'home';
     syncUI();
     await renderLeaderboard();
     renderBoard();
+    syncAppScreen();
     if (state.profile) {
       publishMyProfile();
       loadFriendsFromRemote();
@@ -6034,13 +6079,14 @@ function ordinalSuffix(n) {
       openStartScreen();
       ui.nickNote.textContent = 'Set your nickname first on the home screen to enter the arena.';
     }
-    state.appScreen = 'home';
     syncAppScreen();
     updateMobileMode();
     try {
       document.documentElement.classList.remove('fa-preboot-hide');
-      if (document.body) document.body.classList.remove('fa-preboot-hide');
+      document.documentElement.classList.remove('fa-app-not-ready');
       if (document.body) {
+        document.body.classList.remove('fa-preboot-hide');
+        document.body.classList.remove('fa-app-not-ready');
         document.body.style.visibility = '';
         document.body.style.opacity = '';
       }
