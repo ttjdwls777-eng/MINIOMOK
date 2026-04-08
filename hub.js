@@ -232,7 +232,8 @@ function ordinalSuffix(n) {
     sharedWeeklyLeaderboard: [],
     sharedPreviousWeeklyLeaderboard: [],
     appScreen: 'home',
-    lastNonGameScreen: 'home'
+    lastNonGameScreen: 'home',
+    lastButtonSoundAt: 0
   };
 
   const ui = {};
@@ -2516,26 +2517,23 @@ function ordinalSuffix(n) {
       if (e.target === ui.confirmModal) closeConfirm();
     });
 
-    root.addEventListener('click', e => {
+    const delegatedButtonSound = e => {
+      if (e && e.type === 'keydown' && !(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
       const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
       if (!btn) return;
       if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
+      const now = Date.now();
+      if (now - Number(state.lastButtonSoundAt || 0) < 90) return;
+      state.lastButtonSoundAt = now;
       try {
         initAudio();
         playUiTap();
       } catch (err) {}
-    }, true);
+    };
 
-    root.addEventListener('keydown', e => {
-      if (!(e.key === 'Enter' || e.key === ' ' || e.code === 'Space')) return;
-      const btn = e.target && e.target.closest ? e.target.closest('button, .fa-btn, .fa-chip, .fa-stake-pill') : null;
-      if (!btn) return;
-      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') return;
-      try {
-        initAudio();
-        playUiTap();
-      } catch (err) {}
-    }, true);
+    root.addEventListener('click', delegatedButtonSound, true);
+    root.addEventListener('touchend', delegatedButtonSound, { capture: true, passive: true });
+    root.addEventListener('keydown', delegatedButtonSound, true);
 
     window.addEventListener('keydown', onGlobalKey);
     window.addEventListener('resize', () => {
@@ -5121,7 +5119,22 @@ function ordinalSuffix(n) {
       } catch (e) {
         console.log('post-finish room reset ignored:', e);
       }
-      showOverlay(title, text + (getCurrentStars() < normalizeStarWager(state.online.starWager, STAR_WAGER_OPTIONS[0]) ? ' Not enough stars for rematch, so you will leave the room.' : ' Stay in the room and press Ready for an immediate rematch.'), { starsText, starsTone, confirmOnly: false });
+
+      const popupTitle = winner === mySide ? 'VICTORY' : winner === oppSide ? 'LOSS' : 'DRAW';
+      const popupTextParts = [
+        winner === mySide ? '승리했습니다.' : winner === oppSide ? '패배했습니다.' : '무승부입니다.'
+      ];
+      if (starsText) popupTextParts.push(starsText);
+      if (getCurrentStars() < normalizeStarWager(state.online.starWager, STAR_WAGER_OPTIONS[0])) {
+        popupTextParts.push('보유 스타가 부족해서 재대국 전에 방을 나가야 합니다.');
+      } else {
+        popupTextParts.push('방에 남아 Ready를 누르면 바로 재대국할 수 있습니다.');
+      }
+      try {
+        initAudio();
+        playRoomEventChime(winner === mySide ? 'create' : 'join');
+      } catch (e) {}
+      openNoticePopup(popupTitle, popupTextParts.join(' '), '확인');
       return;
     }
     requestAnimationFrame(() => {
