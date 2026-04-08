@@ -11,6 +11,11 @@ function ordinalSuffix(n) {
   }
 
 (() => {
+  try {
+    document.documentElement.classList.add('fa-preboot-hide');
+    if (document.body) document.body.classList.add('fa-preboot-hide');
+  } catch {}
+
   const APP_NAME = 'FA gomoku';
   const STORAGE_KEY = 'fa_omok_state_v2';
   const PROFILE_KEY = 'fa_omok_profile_v2';
@@ -1121,6 +1126,9 @@ function ordinalSuffix(n) {
                       <button class="fa-btn primary big" id="fa-save-start">Game Start</button>
                       <button class="fa-btn ghost big mobile-only" id="fa-mobile-fullscreen-btn">Play Fullscreen</button>
                     </div>
+                    <div class="fa-stage-actions hidden" id="fa-lobby-nav-actions">
+                      <button class="fa-btn ghost big" id="fa-lobby-home-btn">Lobby Home</button>
+                    </div>
                   </div>
                 </div>
 
@@ -1253,6 +1261,8 @@ function ordinalSuffix(n) {
 
     const style = document.createElement('style');
     style.textContent = `
+      .fa-preboot-hide body,
+      body.fa-preboot-hide { visibility: hidden !important; opacity: 0 !important; }
       :root {
         --glass: rgba(255,255,255,.06);
         --line: rgba(255,255,255,.1);
@@ -2146,10 +2156,13 @@ function ordinalSuffix(n) {
       body.fa-mobile-fullscreen .fa-board-wrap {
         min-height: 100vh;
         border-radius: 0;
-        padding: 10px;
+        align-items: flex-start;
+        padding: max(124px, calc(env(safe-area-inset-top) + 110px)) 10px max(106px, calc(env(safe-area-inset-bottom) + 92px));
       }
       body.fa-mobile-fullscreen #fa-board {
-        width: min(100vw - 20px, 100vh - 20px);
+        width: min(100vw - 20px, calc(100vh - 240px));
+        max-width: calc(100vw - 20px);
+        max-height: calc(100vh - 240px);
       }
 
       @media (max-width: 1120px) {
@@ -2173,6 +2186,65 @@ function ordinalSuffix(n) {
         min-height: calc(100svh - 210px);
       }
       @media (max-width: 740px) {
+        body.fa-route-home .fa-home-hero {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+        body.fa-route-home .fa-home-hero-copy {
+          display: none !important;
+        }
+        body.fa-route-home .fa-home-scene {
+          padding-top: 2px;
+        }
+        body.fa-route-home .fa-home-hero-side {
+          padding: 22px;
+          border-radius: 28px;
+          background:
+            linear-gradient(180deg, rgba(110,70,34,.58), rgba(63,37,18,.52)),
+            repeating-linear-gradient(90deg, rgba(255,255,255,.016) 0px, rgba(255,255,255,.016) 2px, rgba(0,0,0,.028) 2px, rgba(0,0,0,.028) 6px);
+          border: 1px solid rgba(255,236,205,.10);
+          box-shadow: 0 22px 60px rgba(0,0,0,.28);
+        }
+        body.fa-route-home .fa-home-profile {
+          align-items: flex-start;
+          margin-bottom: 14px;
+        }
+        body.fa-route-home .fa-home-profile .fa-avatar.large {
+          width: 70px;
+          height: 70px;
+          border-radius: 18px;
+          flex: 0 0 auto;
+        }
+        body.fa-route-home .fa-home-profile .fa-name {
+          font-size: 17px;
+          font-weight: 900;
+        }
+        body.fa-route-home .fa-home-profile .fa-rank {
+          font-size: 13px;
+          color: #f1d598;
+        }
+        body.fa-route-home .fa-home-profile .fa-mini-note {
+          margin-top: 6px;
+          line-height: 1.45;
+        }
+        body.fa-route-home .fa-home-stats {
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
+        body.fa-route-home .fa-scene-stat {
+          min-height: 84px;
+          padding: 16px 16px 14px;
+          border-radius: 18px;
+          background: rgba(255,245,232,.045);
+          border: 1px solid rgba(255,237,206,.09);
+        }
+        body.fa-route-home .fa-scene-stat strong {
+          margin-top: 10px;
+          font-size: 20px;
+        }
+        body.fa-route-home .fa-scene-stat:last-child strong {
+          color: #ffe19a;
+        }
         .fa-brand-area { width:auto; justify-content:flex-start; }
         .fa-top-wallet-row { padding: 0 14px 12px; }
         .fa-profile-main-meta { flex-direction:column; align-items:flex-start; }
@@ -2342,6 +2414,8 @@ function ordinalSuffix(n) {
     ui.lobbyResultText = root.querySelector('#fa-lobby-result-text');
     ui.lobbyConfirmActions = root.querySelector('#fa-lobby-confirm-actions');
     ui.lobbyStartActions = root.querySelector('#fa-lobby-start-actions');
+    ui.lobbyNavActions = root.querySelector('#fa-lobby-nav-actions');
+    ui.lobbyHomeBtn = root.querySelector('#fa-lobby-home-btn');
     ui.confirmProfileBtn = root.querySelector('#fa-confirm-profile-btn');
     ui.saveStart = root.querySelector('#fa-save-start');
     ui.floatingGameActions = root.querySelector('#fa-floating-game-actions');
@@ -2457,6 +2531,7 @@ function ordinalSuffix(n) {
     if (rankingTabWeekly) rankingTabWeekly.addEventListener('click', () => switchLeaderboardTab('weekly'));
     if (rankingTabPrevious) rankingTabPrevious.addEventListener('click', () => switchLeaderboardTab('previous'));
     root.querySelector('#fa-save-start').addEventListener('click', startGameFromLobby);
+    if (ui.lobbyHomeBtn) ui.lobbyHomeBtn.addEventListener('click', () => navigateToScreen('home', { bypassLock: true }));
     root.querySelector('#fa-confirm-profile-btn').addEventListener('click', confirmLobbyProfile);
     root.querySelector('#fa-newgame-btn').addEventListener('click', handleNewMatch);
     ui.overlayConfirmBtn = root.querySelector('#fa-overlay-confirm-btn');
@@ -2480,7 +2555,7 @@ function ordinalSuffix(n) {
     root.querySelector('#fa-floating-fullscreen').addEventListener('click', () => requestMobileFullscreen(true));
     root.querySelector('#fa-floating-exit-fullscreen').addEventListener('click', exitMobileFullscreen);
     const floatingSurrenderBtn = root.querySelector('#fa-floating-surrender');
-    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderOnlineMatch);
+    if (floatingSurrenderBtn) floatingSurrenderBtn.addEventListener('click', surrenderCurrentMatch);
     ui.placeBtn.addEventListener('click', confirmPendingMove);
     ui.modeAi.addEventListener('click', () => switchMatchMode('ai'));
     ui.modeFriend.addEventListener('click', () => switchMatchMode('friend'));
@@ -2493,7 +2568,7 @@ function ordinalSuffix(n) {
     if (ui.addFriendBtn) ui.addFriendBtn.addEventListener('click', addFriendByNickname);
     if (ui.refreshFriendsBtn) ui.refreshFriendsBtn.addEventListener('click', refreshFriendsPanel);
     const surrenderBtn = root.querySelector('#fa-surrender-btn');
-    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderOnlineMatch);
+    if (surrenderBtn) surrenderBtn.addEventListener('click', surrenderCurrentMatch);
 
     ui.board.addEventListener('click', onBoardClick);
     ui.board.addEventListener('dblclick', e => e.preventDefault());
@@ -3106,13 +3181,18 @@ function ordinalSuffix(n) {
     return true;
   }
 
-  async function surrenderOnlineMatch() {
-    if (!isOnlineMode() || !state.started || state.gameOver || state.phase !== 'playing') return;
+  async function surrenderCurrentMatch() {
+    if (!state.started || state.gameOver || state.phase !== 'playing') return;
     const winner = getOpponentSide();
     state.gameOver = true;
     state.winner = winner;
     state.winningLine = [];
     await finishGame(winner, [], false, 'surrender');
+    if (!isOnlineMode()) {
+      setTimeout(() => {
+        openNoticePopup('DEFEAT', 'You surrendered. Defeat recorded.', 'Confirm');
+      }, 30);
+    }
   }
 
 
@@ -3416,6 +3496,10 @@ function ordinalSuffix(n) {
     if (!ui.lobbyConfirmActions || !ui.lobbyStartActions) return;
     ui.lobbyConfirmActions.classList.toggle('hidden', !!state.lobbyConfirmed);
     ui.lobbyStartActions.classList.toggle('hidden', !state.lobbyConfirmed);
+    if (ui.lobbyNavActions) {
+      const showLobbyHome = !!state.lobbyConfirmed && !isOnlineMode();
+      ui.lobbyNavActions.classList.toggle('hidden', !showLobbyHome);
+    }
   }
 
 
@@ -4674,9 +4758,10 @@ function ordinalSuffix(n) {
     const newGameBtn = ui.root.querySelector('#fa-newgame-btn');
     const pauseBtn = ui.root.querySelector('#fa-pause-btn');
     const resetCareerBtn = ui.root.querySelector('#fa-reset-score-btn');
-    const onlinePlayingOnlySurrender = !!(isOnlineMode() && state.phase === 'playing' && state.started && !state.gameOver);
-    if (surrenderBtn) surrenderBtn.classList.toggle('hidden', !onlinePlayingOnlySurrender);
-    if (floatingSurrenderBtn) floatingSurrenderBtn.classList.toggle('hidden', !onlinePlayingOnlySurrender);
+    const playingSurrenderAvailable = !!(state.phase === 'playing' && state.started && !state.gameOver);
+    const onlinePlayingOnlySurrender = !!(isOnlineMode() && playingSurrenderAvailable);
+    if (surrenderBtn) surrenderBtn.classList.toggle('hidden', !playingSurrenderAvailable);
+    if (floatingSurrenderBtn) floatingSurrenderBtn.classList.toggle('hidden', !playingSurrenderAvailable);
     if (newGameBtn) newGameBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
     if (pauseBtn) pauseBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
     if (resetCareerBtn) resetCareerBtn.classList.toggle('hidden', onlinePlayingOnlySurrender);
@@ -5169,6 +5254,7 @@ function ordinalSuffix(n) {
     }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        state.appScreen = isOnlineMode() ? 'room' : 'ai';
         openStartScreen();
         syncUI();
       });
@@ -5773,6 +5859,14 @@ function ordinalSuffix(n) {
     state.appScreen = 'home';
     syncAppScreen();
     updateMobileMode();
+    try {
+      document.documentElement.classList.remove('fa-preboot-hide');
+      if (document.body) document.body.classList.remove('fa-preboot-hide');
+      if (document.body) {
+        document.body.style.visibility = '';
+        document.body.style.opacity = '';
+      }
+    } catch {}
   }
 
   if (document.readyState === 'loading') {
