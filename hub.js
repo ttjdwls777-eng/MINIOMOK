@@ -63,9 +63,8 @@ function ordinalSuffix(n) {
     }
   },
 
-  // FIX: weekly ranking previously only searched the top-50 by total wins,
-  // so weekly-only winners outside that slice were invisible. This fetches
-  // the raw player pool so renderLeaderboard can filter/sort by weekly stats.
+  // FIX: weekly ranking was limited to the top-50-by-total-wins slice, so
+  // weekly-only winners outside that slice never showed. Raw pool access:
   async fetchAll() {
     try {
       const snapshot = await firebase
@@ -1853,10 +1852,9 @@ function ordinalSuffix(n) {
     root.querySelector('#fa-btn-play-ai').addEventListener('click', () => {
       if (!state.profile) { goScreen('fa-screen-setup'); return; }
       switchMatchMode('ai');
-      // FIX: openStartScreen() routes AI mode back to 'fa-screen-home', so the
-      // button appeared to do nothing. Route directly to lobby (like friend mode).
+      // FIX: openStartScreen() routes AI mode back to 'fa-screen-home' → button looked dead.
       goScreen('fa-screen-lobby');
-      renderLobbyStatus();
+      if (typeof renderLobbyStatus === 'function') renderLobbyStatus();
     });
     root.querySelector('#fa-btn-play-friend').addEventListener('click', () => {
       if (!state.profile) { goScreen('fa-screen-setup'); return; }
@@ -1957,8 +1955,7 @@ function ordinalSuffix(n) {
 
     window.addEventListener('keydown', onGlobalKey);
     window.addEventListener('resize', () => { updateMobileMode(); renderBoard(); });
-    // FIX: when user presses ESC (native browser exit), clear our internal
-    // fullscreen flag and drop the mobile-fullscreen body class so all UI resyncs.
+    // FIX: when ESC or browser exits FS natively, clear our internal flags so UI resyncs
     const onFsChange = () => {
       const realFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
       if (!realFs) {
@@ -2948,9 +2945,8 @@ function ordinalSuffix(n) {
     const isFs = !!document.fullscreenElement || document.body.classList.contains('fa-mobile-fullscreen');
     ui.floatingFullscreen.classList.toggle('hidden', isFs);
     ui.floatingExitFullscreen.classList.toggle('hidden', !isFs);
-    // FIX: mobile-fullscreen hides .fa-game-header entirely (CSS), so the
-    // header-based exit button is invisible. The inner floating buttons are
-    // the only exit path. Toggle them here too so "Exit FS" actually appears.
+    // FIX: header buttons are hidden via .fa-game-header { display:none !important } in
+    // mobile-fullscreen mode. The inner float buttons are the only visible exit path.
     const floatFsIn = root.querySelector('#fa-float-fullscreen-inner');
     const floatExIn = root.querySelector('#fa-float-exit-inner');
     if (floatFsIn) floatFsIn.classList.toggle('hidden', isFs);
@@ -4186,8 +4182,7 @@ function ordinalSuffix(n) {
   }
 
   async function renderLeaderboard(full = false) {
-    // FIX: pull the raw full pool so weekly ranking isn't limited to the
-    // top-50-by-total-wins slice. Fall back gracefully to fetchTop/local.
+    // FIX: fetch the raw full pool so weekly rank isn't constrained to top-50-by-total.
     let rawPool = [];
     try {
       if (state.remoteAdapter && typeof state.remoteAdapter.fetchAll === 'function') {
@@ -4198,8 +4193,7 @@ function ordinalSuffix(n) {
     } catch { rawPool = getLocalLeaderboard(); }
     rawPool = Array.isArray(rawPool) ? rawPool : [];
 
-    // Merge in the current player's latest profile so their weekly stats
-    // show up even before the next network round-trip settles.
+    // Merge my latest profile into the pool so recent wins appear immediately
     if (state.profile && state.profile.id) {
       const idx = rawPool.findIndex(p => p && p.id === state.profile.id);
       const mine = {
@@ -4222,7 +4216,6 @@ function ordinalSuffix(n) {
     let totalBoard = sanitizeLeaderboardEntries(rawPool).slice(0, 50);
     state.leaderboardCache = totalBoard;
     const weeklySeason = ensureWeeklySeason();
-    // FIX: filter/sort weekly from the RAW pool, not the total-sorted top 50.
     let weeklyBoard = rawPool
       .filter(p => p && (p.weeklyKey || weeklySeason.key) === weeklySeason.key && Number(p.weeklyWins || 0) > 0)
       .map(p => ({ ...p, totalWins: Number(p.weeklyWins || 0), totalLosses: Number(p.weeklyLosses || 0), totalGames: Number(p.weeklyGames || 0) }));
@@ -5072,15 +5065,13 @@ function ordinalSuffix(n) {
   }
 
   function requestMobileFullscreen(force = false) {
-    // FIX: removed `innerWidth > 740` early-return so desktop users can also use FS.
+    // FIX: desktop users can now FS too. Mobile class only added for <=740px.
     if (!force && !state.fullscreenRequested) return;
     if (window.innerWidth <= 740) document.body.classList.add('fa-mobile-fullscreen');
     state.fullscreenRequested = !!force || state.fullscreenRequested;
     const elem = document.documentElement;
     const req = elem && (elem.requestFullscreen || elem.webkitRequestFullscreen || elem.msRequestFullscreen);
-    if (req) {
-      try { const p = req.call(elem); if (p && p.catch) p.catch(() => {}); } catch (e) {}
-    }
+    if (req) { try { const p = req.call(elem); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
     updateFullscreenButtons();
   }
 
@@ -5129,5 +5120,401 @@ function ordinalSuffix(n) {
     document.addEventListener('DOMContentLoaded', boot);
   } else {
     boot();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════
+     EMERALD KAKAO THEME OVERRIDE
+     - Applies green gradient Kakao-style theme on top of original CSS
+     - Restructures profile screen to show stats instead of start/FS buttons
+     - Runs after original boot() completes so all DOM exists
+     ═════════════════════════════════════════════════════════════════════ */
+  function applyEmeraldThemeOverride() {
+    const css = `
+    :root{
+      --kk-g1:#0b4f3a; --kk-g2:#0e6b4d; --kk-g3:#14916a; --kk-g4:#1fb37f;
+      --kk-gold:#ffd56b; --kk-gold2:#f6b733;
+      --kk-paper:#f5f6f4; --kk-ink:#0b2a20;
+    }
+    html,body{
+      background:radial-gradient(1200px 800px at 30% 10%,#0e3b2c 0%,#05110c 60%) !important;
+      color:#fff !important;
+    }
+    body::before{
+      content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
+      background:
+        radial-gradient(600px 400px at 85% -10%,rgba(31,179,127,.35),transparent 60%),
+        radial-gradient(500px 400px at -10% 110%,rgba(20,145,106,.35),transparent 60%);
+    }
+    /* Screens base */
+    .fa-screen{
+      background:linear-gradient(165deg,var(--kk-g1) 0%,var(--kk-g2) 35%,var(--kk-g3) 70%,var(--kk-g4) 100%) !important;
+      color:#fff !important;
+    }
+    .fa-screen::before{
+      content:"";position:absolute;inset:0;pointer-events:none;
+      background:
+        radial-gradient(500px 300px at 85% 0%,rgba(31,179,127,.4),transparent 60%),
+        radial-gradient(400px 300px at -5% 105%,rgba(20,145,106,.45),transparent 60%);
+    }
+    .fa-screen > *{position:relative;z-index:1}
+
+    /* Nav bar / titles */
+    .fa-screen-nav-bar{backdrop-filter:blur(10px)}
+    .fa-screen-title{
+      font-weight:900 !important;
+      background:linear-gradient(180deg,#fff,#d7f4e5);
+      -webkit-background-clip:text;background-clip:text;color:transparent !important;
+      letter-spacing:-.3px;
+    }
+    .fa-back-btn{
+      background:rgba(255,255,255,.1) !important;
+      border:1px solid rgba(255,255,255,.2) !important;
+      color:#fff !important;
+      backdrop-filter:blur(10px);
+      border-radius:14px !important;
+    }
+    .fa-back-btn:hover{background:rgba(255,255,255,.18) !important}
+
+    /* Home main buttons (Play vs AI / Friend) */
+    .fa-main-btn{
+      background:linear-gradient(135deg,rgba(255,255,255,.14),rgba(255,255,255,.06)) !important;
+      backdrop-filter:blur(14px);
+      border:1px solid rgba(255,255,255,.22) !important;
+      box-shadow:0 10px 28px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.2) !important;
+      color:#fff !important;
+      border-radius:20px !important;
+      position:relative;overflow:hidden;
+    }
+    .fa-main-btn:hover{background:linear-gradient(135deg,rgba(255,255,255,.2),rgba(255,255,255,.08)) !important;transform:translateY(-1px)}
+    .fa-main-btn.primary{
+      background:linear-gradient(135deg,#22c98a 0%,#15a070 50%,#0f7a54 100%) !important;
+      border:1px solid rgba(255,255,255,.28) !important;
+    }
+    .fa-main-btn.primary::after{
+      content:"";position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%);
+      background-size:200% 100%;animation:kk-shine 3.2s infinite;
+    }
+    @keyframes kk-shine{0%{background-position:-200% 0}100%{background-position:200% 0}}
+    .fa-main-btn-icon{
+      background:rgba(0,0,0,.3) !important;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.18);
+      border-radius:14px !important;
+    }
+    .fa-main-btn.primary .fa-main-btn-icon{background:rgba(0,0,0,.35) !important}
+    .fa-main-btn-title{color:#fff !important;font-weight:900 !important}
+    .fa-main-btn-sub{color:rgba(255,255,255,.85) !important}
+    .fa-main-btn-arrow{color:rgba(255,255,255,.75) !important}
+
+    /* CTA buttons */
+    .fa-cta-btn{
+      background:linear-gradient(135deg,#22c98a,#0f7a54) !important;
+      color:#fff !important;
+      border:1px solid rgba(255,255,255,.22) !important;
+      border-radius:16px !important;
+      font-weight:900 !important;
+      box-shadow:0 8px 20px rgba(15,122,84,.4);
+    }
+    .fa-cta-btn.ghost,.fa-cta-btn.outline{
+      background:rgba(255,255,255,.12) !important;
+      border:1px solid rgba(255,255,255,.22) !important;
+      box-shadow:none !important;
+    }
+    .fa-cta-btn.danger{background:linear-gradient(135deg,#e74c3c,#a02020) !important}
+
+    /* Icon buttons */
+    .fa-icon-btn{
+      background:rgba(255,255,255,.1) !important;
+      border:1px solid rgba(255,255,255,.2) !important;
+      color:#fff !important;
+      backdrop-filter:blur(10px);
+      border-radius:14px !important;
+    }
+    .fa-icon-btn:hover{background:rgba(255,255,255,.18) !important}
+
+    /* Ctrl buttons (game header) */
+    .fa-ctrl-btn{
+      background:rgba(255,255,255,.1) !important;
+      border:1px solid rgba(255,255,255,.2) !important;
+      color:#fff !important;
+      border-radius:12px !important;
+      backdrop-filter:blur(8px);
+    }
+    .fa-ctrl-btn.ghost{background:rgba(0,0,0,.25) !important}
+    .fa-ctrl-btn:hover{background:rgba(255,255,255,.18) !important}
+
+    /* Text inputs */
+    .fa-text-input{
+      background:rgba(0,0,0,.3) !important;
+      border:1px solid rgba(255,255,255,.22) !important;
+      color:#fff !important;
+      border-radius:14px !important;
+    }
+    .fa-text-input::placeholder{color:rgba(255,255,255,.5) !important}
+    .fa-text-input:focus{border-color:var(--kk-gold) !important;outline:none !important}
+    .fa-field-label{color:rgba(255,255,255,.85) !important;font-weight:800 !important}
+    .fa-field-note{color:rgba(255,255,255,.65) !important}
+
+    /* Tab chips */
+    .fa-tab-chip{
+      background:rgba(255,255,255,.08) !important;
+      border:1px solid rgba(255,255,255,.2) !important;
+      color:rgba(255,255,255,.8) !important;
+      border-radius:12px !important;
+    }
+    .fa-tab-chip.active{
+      background:linear-gradient(135deg,#22c98a,#0f7a54) !important;
+      color:#fff !important;
+      border-color:rgba(255,255,255,.3) !important;
+    }
+
+    /* Stake pills */
+    .fa-stake-pill{
+      background:rgba(255,255,255,.1) !important;
+      border:1px solid rgba(255,255,255,.2) !important;
+      color:#fff !important;
+      border-radius:999px !important;
+    }
+    .fa-stake-pill.active{
+      background:linear-gradient(135deg,var(--kk-gold),var(--kk-gold2)) !important;
+      color:#2a1500 !important;
+      border-color:rgba(255,255,255,.4) !important;
+    }
+
+    /* Rank rows */
+    .fa-rank-row{
+      background:rgba(255,255,255,.08) !important;
+      border:1px solid rgba(255,255,255,.16) !important;
+      border-radius:16px !important;
+      color:#fff !important;
+    }
+    .fa-rank-name{color:#fff !important;font-weight:900 !important}
+    .fa-rank-sub{color:rgba(255,255,255,.72) !important}
+    .fa-rank-badge{
+      background:linear-gradient(135deg,var(--kk-gold),var(--kk-gold2)) !important;
+      color:#2a1500 !important;
+      font-weight:900 !important;
+    }
+    .fa-rank-pos.crown-top{background:linear-gradient(135deg,#ffd56b,#f6b733) !important;color:#2a1500 !important}
+    .fa-rank-pos.crown-silver{background:linear-gradient(135deg,#e4e4e4,#9a9a9a) !important;color:#2a1500 !important}
+    .fa-rank-pos.crown-bronze{background:linear-gradient(135deg,#e89a5c,#a45a20) !important;color:#fff !important}
+    .fa-rank-pos{background:rgba(0,0,0,.3) !important;color:#fff !important}
+
+    /* Modals */
+    .fa-modal-content,.fa-overlay-content{
+      background:linear-gradient(165deg,#123e30,#0a2920) !important;
+      border:1px solid rgba(255,255,255,.2) !important;
+      color:#fff !important;
+      border-radius:24px !important;
+      box-shadow:0 28px 60px rgba(0,0,0,.5) !important;
+    }
+    .fa-modal-title,.fa-overlay-title{
+      color:#fff !important;
+      font-weight:900 !important;
+    }
+
+    /* Avatars */
+    .fa-avatar{
+      background:linear-gradient(135deg,var(--kk-gold),#ff9e3c) !important;
+      color:#2a1500 !important;
+      box-shadow:0 10px 24px rgba(0,0,0,.35),inset 0 2px 0 rgba(255,255,255,.5) !important;
+    }
+
+    /* Turn badge / player bar */
+    .fa-turn-badge{
+      background:rgba(255,255,255,.1) !important;
+      border:1px solid rgba(255,255,255,.22) !important;
+      color:#fff !important;
+      border-radius:14px !important;
+      backdrop-filter:blur(10px);
+    }
+    .fa-turn-badge.player-turn{
+      background:linear-gradient(135deg,rgba(255,213,107,.35),rgba(246,183,51,.15)) !important;
+      border-color:var(--kk-gold) !important;
+    }
+
+    /* Board area */
+    #fa-board{
+      border-radius:20px !important;
+      box-shadow:0 18px 44px rgba(0,0,0,.5),inset 0 0 0 5px #4a2806 !important;
+    }
+
+    /* Stars / wallet */
+    .fa-lobby-wallet,.fa-star-pip{color:var(--kk-gold) !important}
+    .fa-lobby-stars{color:var(--kk-gold) !important;font-weight:900 !important}
+
+    /* ── Profile screen: hide start/fullscreen buttons, show stats ── */
+    #fa-screen-setup #fa-save-start,
+    #fa-screen-setup #fa-mobile-fullscreen-btn,
+    #fa-screen-setup #fa-confirm-profile-btn.kk-hidden-when-set{
+      display:none !important;
+    }
+    .kk-stats-panel{
+      display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+      margin:18px 0 14px;
+    }
+    .kk-stat{
+      background:rgba(255,255,255,.1);
+      border:1px solid rgba(255,255,255,.2);
+      border-radius:18px;
+      padding:14px 8px;text-align:center;backdrop-filter:blur(10px);
+    }
+    .kk-stat .v{font-size:22px;font-weight:900;color:#fff;line-height:1}
+    .kk-stat.gold .v{color:var(--kk-gold)}
+    .kk-stat.green .v{color:#9cf0c4}
+    .kk-stat .l{font-size:11px;opacity:.8;margin-top:6px;font-weight:700;letter-spacing:.3px;color:#fff}
+    .kk-level-box{
+      background:rgba(0,0,0,.3);
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:18px;padding:14px 16px;margin-bottom:10px;
+    }
+    .kk-lv-row{
+      display:flex;justify-content:space-between;align-items:center;
+      font-size:13px;font-weight:800;color:#fff;
+    }
+    .kk-lv-bar{
+      height:10px;background:rgba(0,0,0,.35);border-radius:6px;
+      overflow:hidden;margin-top:8px;
+    }
+    .kk-lv-fill{
+      height:100%;
+      background:linear-gradient(90deg,#9cf0c4,#1fb37f,#ffd56b);
+      border-radius:6px;transition:width .6s;
+    }
+    .kk-prof-row{
+      display:flex;justify-content:space-between;align-items:center;
+      background:rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:14px;padding:13px 16px;
+      font-weight:700;font-size:14px;color:#fff;margin-bottom:8px;
+    }
+    .kk-prof-row .v{font-weight:900;color:var(--kk-gold)}
+    .kk-prof-section-title{
+      font-size:11px;font-weight:900;opacity:.72;
+      margin:16px 4px 8px;letter-spacing:1px;
+      text-transform:uppercase;color:#fff;
+    }
+    `;
+    const style = document.createElement('style');
+    style.id = 'kk-emerald-override';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  function enhanceProfileScreen() {
+    const root = document.getElementById('fa-app-root') || document;
+    const setupScreen = document.getElementById('fa-screen-setup');
+    if (!setupScreen) return;
+    const body = setupScreen.querySelector('.fa-setup-body');
+    if (!body) return;
+
+    // Build stats panel once
+    if (!document.getElementById('kk-stats-wrap')) {
+      const wrap = document.createElement('div');
+      wrap.id = 'kk-stats-wrap';
+      wrap.innerHTML = `
+        <div class="kk-prof-section-title">My Stats</div>
+        <div class="kk-stats-panel">
+          <div class="kk-stat gold"><div class="v" id="kk-stat-stars">0</div><div class="l">⭐ 스타</div></div>
+          <div class="kk-stat green"><div class="v" id="kk-stat-wins">0</div><div class="l">🏆 승리</div></div>
+          <div class="kk-stat"><div class="v" id="kk-stat-rate">0%</div><div class="l">📈 승률</div></div>
+        </div>
+        <div class="kk-level-box">
+          <div class="kk-lv-row"><span id="kk-lv-label">LV 1</span><span id="kk-lv-xp">0 XP</span></div>
+          <div class="kk-lv-bar"><div class="kk-lv-fill" id="kk-lv-fill" style="width:0%"></div></div>
+        </div>
+        <div class="kk-prof-section-title">Details</div>
+        <div class="kk-prof-row"><span>총 게임</span><span class="v" id="kk-ps-games">0</span></div>
+        <div class="kk-prof-row"><span>패배</span><span class="v" id="kk-ps-loss">0</span></div>
+        <div class="kk-prof-row"><span>최고 연승</span><span class="v" id="kk-ps-best">0</span></div>
+        <div class="kk-prof-row"><span>이번 주 승리</span><span class="v" id="kk-ps-week">0</span></div>
+      `;
+      // Insert after avatar (before nickname editor)
+      const avatar = document.getElementById('fa-setup-avatar');
+      if (avatar && avatar.nextSibling) {
+        body.insertBefore(wrap, avatar.nextSibling);
+      } else {
+        body.appendChild(wrap);
+      }
+    }
+  }
+
+  function refreshProfileStats() {
+    try {
+      const p = state && state.profile;
+      if (!p) return;
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      const stars = Number(p.stars || 0);
+      const wins = Number(p.totalWins || 0);
+      const losses = Number(p.totalLosses || 0);
+      const games = Number(p.totalGames || (wins + losses));
+      const rate = games ? Math.round(wins / games * 100) : 0;
+      const best = Number(p.bestStreak || 0);
+      const week = Number(p.weeklyWins || 0);
+      set('kk-stat-stars', stars.toLocaleString());
+      set('kk-stat-wins', wins);
+      set('kk-stat-rate', rate + '%');
+      set('kk-ps-games', games);
+      set('kk-ps-loss', losses);
+      set('kk-ps-best', best);
+      set('kk-ps-week', week);
+      // Level from XP (or from wins if no xp field)
+      const xp = Number(p.xp || wins * 40);
+      let lv = 1, need = 100, left = xp;
+      while (left >= need) { left -= need; lv++; need = Math.floor(need * 1.25); }
+      set('kk-lv-label', 'LV ' + lv);
+      set('kk-lv-xp', left + ' / ' + need + ' XP');
+      const fill = document.getElementById('kk-lv-fill');
+      if (fill) fill.style.width = Math.min(100, (left / need) * 100) + '%';
+
+      // If profile is set, hide nickname input + confirm + start + FS buttons
+      const editor = document.getElementById('fa-setup-nick-editor');
+      const fixed = document.getElementById('fa-fixed-profile');
+      const confirmBtn = document.getElementById('fa-confirm-profile-btn');
+      const saveStart = document.getElementById('fa-save-start');
+      const mfsBtn = document.getElementById('fa-mobile-fullscreen-btn');
+      if (editor) editor.classList.add('hidden');
+      if (fixed) { fixed.classList.remove('hidden'); }
+      if (confirmBtn) confirmBtn.classList.add('kk-hidden-when-set');
+      if (saveStart) saveStart.classList.add('hidden');
+      if (mfsBtn) mfsBtn.classList.add('hidden');
+    } catch (e) { console.warn('refreshProfileStats error', e); }
+  }
+
+  function hookProfileNav() {
+    // Refresh stats every time the profile screen becomes visible
+    const navBtn = document.getElementById('fa-nav-profile');
+    if (navBtn) {
+      navBtn.addEventListener('click', () => {
+        setTimeout(() => { enhanceProfileScreen(); refreshProfileStats(); }, 50);
+      });
+    }
+    // Also refresh whenever setup screen gets .active
+    const setupScreen = document.getElementById('fa-screen-setup');
+    if (setupScreen && window.MutationObserver) {
+      const obs = new MutationObserver(() => {
+        if (setupScreen.classList.contains('active')) {
+          enhanceProfileScreen();
+          refreshProfileStats();
+        }
+      });
+      obs.observe(setupScreen, { attributes: true, attributeFilter: ['class'] });
+    }
+  }
+
+  function runOverride() {
+    try {
+      applyEmeraldThemeOverride();
+      enhanceProfileScreen();
+      refreshProfileStats();
+      hookProfileNav();
+    } catch (e) { console.warn('emerald override failed', e); }
+  }
+
+  // Run after boot (which may be async). Use readyState + small delay.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(runOverride, 250));
+  } else {
+    setTimeout(runOverride, 250);
   }
 })();
