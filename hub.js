@@ -2470,11 +2470,8 @@ function ordinalSuffix(n) {
           syncHome();
           openWaitingScreen(room.id, Online.wager() | 0, null, (room.state && room.state.title) || '');
         } else {
-          // Loser / guest leaves the room and goes home
+          // Loser / guest leaves the room; modal stays until user taps Home
           Online.leaveRoom();
-          if (!iWon) {
-            setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 2400);
-          }
         }
       } catch {}
     }, 1400);
