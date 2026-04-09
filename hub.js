@@ -58,8 +58,8 @@ function ordinalSuffix(n) {
   const WIN_STAR_REWARDS = { 1: 30, 2: 50, 3: 90 };
   const WIN_XP_REWARDS   = { 1: 20, 2: 40, 3: 70 };
   const LOSS_XP          = 8;
-  const DAILY_BONUS_STAR = 50;
-  const DAILY_BONUS_XP   = 10;
+  const DAILY_BONUS_STAR = 100;
+  const DAILY_BONUS_XP   = 0;
 
   const SHOP_ITEMS = [
     { id: 'avatar_bear',   type: 'avatar', name: 'Bear Cub',       emoji: '🐻', price: 0    },
@@ -1196,7 +1196,7 @@ function ordinalSuffix(n) {
             <span class="pname" id="name-w">AI</span>
           </div>
         </div>
-        <button class="icon-btn" id="btn-fs-game" title="Fullscreen">⛶</button>
+        <div class="icon-btn" style="visibility:hidden"></div>
       </div>
       <div class="turn-banner" id="turn-banner">● <b>Black</b> Turn</div>
       <div class="match-info">
@@ -1206,9 +1206,7 @@ function ordinalSuffix(n) {
       </div>
       <div class="board-wrap"><canvas id="board" width="900" height="900"></canvas></div>
       <div class="game-actions">
-        <button class="ga" id="ga-undo"><span class="i">↩️</span><span data-i18n="undo">Undo</span></button>
         <button class="ga" id="ga-hint"><span class="i">💡</span><span data-i18n="hint">Hint</span></button>
-        <button class="ga" id="ga-restart"><span class="i">🔄</span><span data-i18n="retry">Retry</span></button>
         <button class="ga" id="ga-resign" style="background:linear-gradient(135deg,#ff5a6a,#c92a3c);color:#fff;font-weight:900;"><span class="i">🏳️</span><span data-i18n="resign">Resign</span></button>
       </div>
       <button id="ga-place" class="ga-place-fab"><span data-i18n="place">Place</span></button>
@@ -1379,7 +1377,7 @@ function ordinalSuffix(n) {
   // Level derived from AI wins: 10 wins = +1 level. Capped at 100.
   function levelFromXp(_xp) {
     const wins = (profile && (profile.aiWins | 0)) || 0;
-    const lv = Math.min(100, Math.floor(wins / 10) + 1);
+    const lv = Math.min(300, Math.floor(wins / 10) + 1);
     const cur = wins - (lv - 1) * 10;
     const need = 10;
     return { lv, cur, need };
@@ -1631,9 +1629,11 @@ function ordinalSuffix(n) {
     game.history = [];
     game.gameOver = false;
     game.hintCell = null;
+    game.hintUsed = 0;
     game.pendingCell = null;
     try { togglePlaceFab(false); } catch {}
     game.winLine = null;
+    game.moveDeadline = Date.now() + 60000;
     game.startedAt = Date.now();
     if (game.timerHandle) clearInterval(game.timerHandle);
     game.timerHandle = setInterval(updateTimer, 500);
@@ -1649,9 +1649,29 @@ function ordinalSuffix(n) {
     if (game.gameOver) return;
     const el = $('#mi-timer');
     if (!el) return;
-    const sec = Math.floor((Date.now() - game.startedAt) / 1000);
-    const m = Math.floor(sec / 60), s = sec % 60;
-    el.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    // Per-move 60s countdown.  In PvP, only the side whose turn it is counts.
+    const myTurn = (game.mode === MODE_AI)
+      ? (game.current === HUMAN)
+      : (game.mode === MODE_PVP && Online.inRoom()
+          ? (game.current === (Online.mySide() === 1 ? HUMAN : AI_PLAYER))
+          : true);
+    if (!game.moveDeadline) game.moveDeadline = Date.now() + 60000;
+    const remain = Math.max(0, Math.ceil((game.moveDeadline - Date.now()) / 1000));
+    el.textContent = '⏱ ' + String(remain).padStart(2, '0') + 's';
+    if (myTurn && remain <= 10 && remain > 0 && remain !== game._lastTick) {
+      try { beep(880, 0.08, 'square', 0.18); } catch {}
+    }
+    game._lastTick = remain;
+    if (myTurn && remain === 0 && !game._timedOut) {
+      game._timedOut = true;
+      // Timeout ⇒ I lose
+      if (game.mode === MODE_PVP) {
+        try { Online.resign(); } catch {}
+      } else {
+        game.gameOver = true;
+        endGame(AI_PLAYER);
+      }
+    }
   }
 
   function updateMatchInfo() {
@@ -1923,6 +1943,8 @@ function ordinalSuffix(n) {
       return true;
     }
     game.current = game.current === HUMAN ? AI_PLAYER : HUMAN;
+    game.moveDeadline = Date.now() + 60000;
+    game._lastTick = -1;
     updateTurnDisplay();
     updateMatchInfo();
     draw();
@@ -2322,8 +2344,24 @@ function ordinalSuffix(n) {
     }
     $('#modal-result').classList.add('active');
     syncHome();
+    const isHost = room && room.role === 'host';
     // Tear down room after a beat so both phones receive the finished state first
-    setTimeout(() => { try { Online.leaveRoom(); } catch {} }, 1200);
+    setTimeout(() => {
+      try {
+        if (isHost) {
+          // Host stays in a fresh waiting room so a new challenger can join
+          Online.recycleRoom && Online.recycleRoom();
+          $('#modal-result').classList.remove('active');
+          openWaitingScreen(room.id, Online.wager() | 0, null, (room.state && room.state.title) || '');
+        } else {
+          // Loser / guest leaves the room and goes home
+          Online.leaveRoom();
+          if (!iWon) {
+            setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 2400);
+          }
+        }
+      } catch {}
+    }, 1400);
   }
   function currentRoomRef() {
     try { return Online._room && Online._room(); } catch { return null; }
@@ -2528,7 +2566,7 @@ function ordinalSuffix(n) {
           <div class="rank-pos ${cls}">${label}</div>
           <div class="rank-avatar">${avatar}</div>
           <div class="rank-mid">
-            <div class="rank-name">${escapeHtml(r.nickname || '-')} <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-size:10px;font-weight:900;vertical-align:middle;">LV ${Math.min(100, Math.floor(((r.aiWins|0) || (((r.totalWins|0))||0))/10) + 1)}</span></div>
+            <div class="rank-name">${escapeHtml(r.nickname || '-')} <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-size:10px;font-weight:900;vertical-align:middle;">LV ${Math.min(300, Math.floor(((r.aiWins|0) || (((r.totalWins|0))||0))/10) + 1)}</span></div>
             <div class="rank-sub">${sub}</div>
           </div>
           <div class="rank-right">${rightPrimary}<small>${(r.totalGames || 0)}Match</small></div>
@@ -2702,7 +2740,7 @@ function ordinalSuffix(n) {
     }
     const nav = b.dataset.nav;
     if (nav === 'home')    { show('sc-home'); syncHome(); }
-    else if (nav === 'rank') { show('sc-rank'); renderRanks(); }
+    else if (nav === 'rank') { show('sc-rank'); renderRanks(); try { refreshCloudRanks().then(renderRanks); } catch {} }
     else if (nav === 'profile') { show('sc-profile'); renderProfile(); }
     else if (nav === 'shop') { show('sc-shop'); renderShop(); }
     else if (nav === 'mission') { show('sc-mission'); renderMissions(); }
@@ -2784,9 +2822,14 @@ function ordinalSuffix(n) {
   function resignFlow(onDone) {
     openConfirm(tr('concede_title'), tr('concede_desc'), () => {
       if (game.mode === MODE_PVP) {
-        // Let Firebase flip winner → both phones receive finishPvpGame
+        // Let Firebase flip winner → both phones receive finishPvpGame.
         try { Online.resign(); } catch {}
-        // Local onDone should NOT auto-navigate; the loss modal will show
+        // Safety net: also finalize locally in case the self-update doesn't
+        // retrigger our listener before the room is recycled.
+        try {
+          const opp = Online.mySide() === 1 ? 2 : 1;
+          setTimeout(() => { if (!game.gameOver) finishPvpGame(opp); }, 400);
+        } catch {}
       } else {
         if (game.timerHandle) clearInterval(game.timerHandle);
         game.gameOver = true;
@@ -2809,21 +2852,19 @@ function ordinalSuffix(n) {
       resignFlow(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); });
     }
   }, true);
-  $('#ga-restart').addEventListener('click', () => { playTap(); newGame(); });
-  $('#ga-hint').addEventListener('click', () => { playTap(); showHint(); });
-  $('#ga-undo').addEventListener('click', () => {
+  // Hint: first use free, then 500⭐ each
+  $('#ga-hint').addEventListener('click', () => {
     playTap();
-    if (game.gameOver || !game.history.length) return;
-    const steps = (game.mode === MODE_AI && game.history.length >= 2) ? 2 : 1;
-    for (let i = 0; i < steps; i++) {
-      const last = game.history.pop();
-      if (!last) break;
-      game.board[last.y][last.x] = EMPTY;
-      game.current = last.c;
+    if (game.gameOver) return;
+    game.hintUsed = (game.hintUsed | 0);
+    if (game.hintUsed >= 1) {
+      if ((profile.stars | 0) < 500) { toast('Need 500⭐ for another hint'); return; }
+      profile.stars -= 500;
+      persist(); syncHome();
+      toast('-500⭐ (hint)');
     }
-    updateTurnDisplay();
-    updateMatchInfo();
-    draw();
+    game.hintUsed = game.hintUsed + 1;
+    showHint();
   });
   // (in-game Settings button removed — settings only via Profile)
 
@@ -2919,7 +2960,7 @@ function ordinalSuffix(n) {
   });
 
   // Fullscreen
-  $('#btn-fs-game').addEventListener('click', () => { playTap(); toggleFullscreen(); });
+  // fullscreen button removed
   $('#btn-fs-set').addEventListener('click', () => { playTap(); toggleFullscreen(); });
   document.addEventListener('fullscreenchange', () => requestAnimationFrame(resize));
   document.addEventListener('webkitfullscreenchange', () => requestAnimationFrame(resize));
@@ -3227,7 +3268,9 @@ function ordinalSuffix(n) {
           for (let x = 0; x < BOARD_SIZE; x++)
             game.board[y][x] = v.board[y * BOARD_SIZE + x] | 0;
       }
+      const prevTurn = game.current;
       game.current = (v.turn === 1) ? HUMAN : AI_PLAYER;
+      if (prevTurn !== game.current) { game.moveDeadline = Date.now() + 60000; game._lastTick = -1; game._timedOut = false; }
       // Rebuild history list from board so winning-line checks work
       game.history = [];
       for (let y = 0; y < BOARD_SIZE; y++)
@@ -3333,6 +3376,23 @@ function ordinalSuffix(n) {
       _challengeRef = null; _challengeCb = null;
     }
 
+    async function recycleRoom() {
+      const d = ready();
+      if (!d || !currentRoom || currentRoom.role !== 'host') return;
+      try {
+        if (currentRoom) currentRoom._finalized = false;
+        await d.ref(ROOMS_PATH + '/' + currentRoom.id).update({
+          guestId: '', guestName: '', guestAvatar: '',
+          guestReady: false,
+          board: new Array(BOARD_SIZE * BOARD_SIZE).fill(0),
+          turn: 1, winner: 0,
+          status: 'waiting', resignedBy: 0,
+          updatedAt: Date.now(),
+        });
+        currentRoom.started = false;
+      } catch (e) { console.warn('recycleRoom failed', e); }
+    }
+
     async function resignRoom() {
       const d = ready();
       if (!d || !currentRoom) return;
@@ -3361,7 +3421,7 @@ function ordinalSuffix(n) {
       registerPresence, touchPresence, fetchPresence,
       fetchOpenRooms, createRoom, joinRoom, cancelRoom,
       setGuestReady, startMatch,
-      sendMove, leaveRoom, resign: resignRoom,
+      sendMove, leaveRoom, resign: resignRoom, recycleRoom,
       startChallengeListener, stopChallengeListener,
       _room: () => currentRoom,
       inRoom: () => !!currentRoom,
@@ -3646,8 +3706,8 @@ function ordinalSuffix(n) {
       });
       refreshCloudRanks();
       setInterval(() => { Online.touchPresence(); }, 30000);
-      setInterval(refreshCloudRanks, 60000);
-      setInterval(() => { Online.pushLeader(); }, 90000);
+      setInterval(refreshCloudRanks, 15000);
+      setInterval(() => { Online.pushLeader(); }, 60000);
     };
     setTimeout(onlineBoot, 400);
     setTimeout(() => {
