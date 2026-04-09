@@ -1234,8 +1234,7 @@ function ordinalSuffix(n) {
           <div class="reward-chip xp" id="mr-xp">+0 XP</div>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-primary" id="mr-again">Play Again</button>
-          <button class="btn btn-ghost" id="mr-home">Home</button>
+          <button class="btn btn-primary" id="mr-home">Home</button>
         </div>
       </div>
     </div>
@@ -2991,11 +2990,6 @@ function ordinalSuffix(n) {
   // (in-game Settings button removed — settings only via Profile)
 
   // Game result modal actions
-  $('#mr-again').addEventListener('click', () => {
-    playTap();
-    $('#modal-result').classList.remove('active');
-    newGame();
-  });
   $('#mr-home').addEventListener('click', () => {
     playTap();
     $('#modal-result').classList.remove('active');
