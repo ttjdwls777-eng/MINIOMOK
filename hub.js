@@ -1231,7 +1231,7 @@ function ordinalSuffix(n) {
         <p id="mr-desc">AI defeated</p>
         <div class="modal-rewards" id="mr-rewards">
           <div class="reward-chip" id="mr-stars">+0</div>
-          <div class="reward-chip xp" id="mr-xp">+0 XP</div>
+          <div class="reward-chip xp hidden" id="mr-xp">+0 XP</div>
         </div>
         <div class="modal-actions">
           <button class="btn btn-primary" id="mr-home">Home</button>
@@ -2379,7 +2379,7 @@ function ordinalSuffix(n) {
     if (game.mode === MODE_AI && playerWon) {
       rewardsEl.classList.remove('hidden');
       $('#mr-stars').textContent = '+' + rewardStar;
-      $('#mr-xp').textContent = '+' + rewardXp + ' XP';
+      $('#mr-xp').classList.add('hidden');
     } else {
       rewardsEl.classList.add('hidden');
     }
@@ -2448,7 +2448,7 @@ function ordinalSuffix(n) {
     if (wager) {
       rewardsEl.classList.remove('hidden');
       $('#mr-stars').textContent = (iWon ? '+' : '') + delta.toLocaleString() + '⭐';
-      $('#mr-xp').textContent = (iWon ? '+85%' : '−100%') + ' wager';
+      $('#mr-xp').classList.add('hidden');
     } else {
       rewardsEl.classList.add('hidden');
     }
