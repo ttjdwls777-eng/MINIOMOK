@@ -169,16 +169,20 @@ function ordinalSuffix(n) {
       radial-gradient(1.3px 1.3px at 54% 42%, rgba(255,255,255,.3) 50%, transparent 51%);
   }
 
+  html,body{ height:100%; overscroll-behavior:none; }
   .stage{
     position:relative;
     width:min(100vw,480px);
-    height:min(100vh,920px);
+    height:min(100dvh,920px);
+    max-height:100dvh;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
     background:linear-gradient(165deg,var(--g1) 0%,var(--g2) 30%,var(--g3) 65%,var(--g4) 100%);
     overflow:hidden;
     border-radius:28px;
     box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.1);
   }
-  @media (max-width:520px){ .stage{ width:100vw; height:100vh; border-radius:0; } }
+  @media (max-width:520px){ .stage{ width:100vw; height:100dvh; max-height:100dvh; border-radius:0; } }
   .stage::before{
     content:"";position:absolute;inset:0;pointer-events:none;
     background:
@@ -3680,6 +3684,26 @@ function ordinalSuffix(n) {
      BOOT
      ═════════════════════════════════════════════════════════════════════════ */
   function boot() {
+    (function ensureViewport(){
+      try{
+        let vp = document.querySelector('meta[name="viewport"]');
+        if(!vp){ vp = document.createElement('meta'); vp.name='viewport'; document.head.appendChild(vp); }
+        vp.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+        const addMeta = (name, content) => {
+          if(document.querySelector('meta[name="'+name+'"]')) return;
+          const m=document.createElement('meta'); m.name=name; m.content=content; document.head.appendChild(m);
+        };
+        addMeta('mobile-web-app-capable','yes');
+        addMeta('apple-mobile-web-app-capable','yes');
+        addMeta('apple-mobile-web-app-status-bar-style','black-translucent');
+        addMeta('theme-color','#0b4f3a');
+        const hideBar = () => { try{ window.scrollTo(0,1); }catch{} };
+        setTimeout(hideBar, 100);
+        setTimeout(hideBar, 500);
+        window.addEventListener('load', hideBar);
+        window.addEventListener('orientationchange', () => setTimeout(hideBar, 300));
+      }catch{}
+    })();
     seedBotsIfNeeded();
     persist();
     reflectSettings();
