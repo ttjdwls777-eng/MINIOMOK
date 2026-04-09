@@ -430,6 +430,17 @@ function ordinalSuffix(n) {
     font-size:13px;font-weight:800;
   }
   .lv-label{ color:var(--accent) }
+  .ga-place-fab{
+    position:fixed; left:50%; bottom:96px; transform:translateX(-50%) scale(.92);
+    padding:16px 42px; min-width:180px; border:none; border-radius:999px;
+    background:linear-gradient(135deg,#ffd56b,#ff9e3c);
+    color:#3a1a00; font-weight:900; font-size:17px; letter-spacing:.08em; text-transform:uppercase;
+    box-shadow:0 14px 34px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.6);
+    cursor:pointer; z-index:50; opacity:0; pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease;
+  }
+  .ga-place-fab.on{ opacity:1; pointer-events:auto; transform:translateX(-50%) scale(1); }
+  .ga-place-fab:active{ transform:translateX(-50%) scale(.96); }
   .lv-bar{
     height:12px;background:rgba(0,0,0,.4);
     border-radius:8px;overflow:hidden;margin-top:8px;
@@ -968,7 +979,7 @@ function ordinalSuffix(n) {
         <button class="main-btn primary" data-action="play-ai">
           <div class="mb-ico">🤖</div>
           <div class="mb-lbl">
-            <div class="mb-title">AI Match</div>
+            <div class="mb-title" data-i18n="ai_match">AI Match</div>
             <div class="mb-sub" id="ai-sub-label">Difficulty · Normal</div>
           </div>
           <div class="mb-arrow">›</div>
@@ -976,17 +987,17 @@ function ordinalSuffix(n) {
         <button class="main-btn secondary" data-action="play-pvp">
           <div class="mb-ico">👥</div>
           <div class="mb-lbl">
-            <div class="mb-title">Play vs Friend</div>
-            <div class="mb-sub">Alternate turns on one device</div>
+            <div class="mb-title" data-i18n="friend_match">Play vs Friend</div>
+            <div class="mb-sub" data-i18n="friend_match_sub">Alternate turns on one device</div>
           </div>
           <div class="mb-arrow">›</div>
         </button>
         <div class="footer-nav">
-          <button class="fnav on" data-nav="home"><span class="i">🏠</span>Home</button>
-          <button class="fnav" data-nav="rank"><span class="i">🏆</span>Ranking</button>
-          <button class="fnav" data-nav="shop"><span class="i">🛍️</span>Shop</button>
-          <button class="fnav" data-nav="mission"><span class="i">📋</span>Mission</button>
-          <button class="fnav" data-nav="profile"><span class="i">👤</span>Profile</button>
+          <button class="fnav on" data-nav="home"><span class="i">🏠</span><span data-i18n="nav_home">Home</span></button>
+          <button class="fnav" data-nav="rank"><span class="i">🏆</span><span data-i18n="nav_rank">Ranking</span></button>
+          <button class="fnav" data-nav="shop"><span class="i">🛍️</span><span data-i18n="nav_shop">Shop</span></button>
+          <button class="fnav" data-nav="mission"><span class="i">📋</span><span data-i18n="nav_mission">Mission</span></button>
+          <button class="fnav" data-nav="profile"><span class="i">👤</span><span data-i18n="nav_profile">Profile</span></button>
         </div>
       </div>
     </section>
@@ -995,7 +1006,7 @@ function ordinalSuffix(n) {
     <section class="screen" id="sc-profile">
       <div class="topbar">
         <button class="icon-btn" data-back>←</button>
-        <div class="brand-name" style="text-align:center;flex:1" id="prof-title">Profile</div>
+        <div class="brand-name" style="text-align:center;flex:1" id="prof-title" data-i18n="profile">Profile</div>
         <button class="icon-btn" id="btn-prof-settings" title="Settings">⚙️</button>
         <button class="icon-btn" id="btn-edit-name" title="Change nickname">✏️</button>
       </div>
@@ -1024,7 +1035,7 @@ function ordinalSuffix(n) {
     <section class="screen" id="sc-rank">
       <div class="topbar">
         <button class="icon-btn" data-back>←</button>
-        <div class="brand-name" style="text-align:center;flex:1">🏆 Ranking</div>
+        <div class="brand-name" style="text-align:center;flex:1"><span data-i18n="ranking_title">🏆 Ranking</span></div>
         <button class="icon-btn" id="btn-rank-refresh" title="Refresh">🔄</button>
       </div>
       <div class="tabs">
@@ -1040,7 +1051,7 @@ function ordinalSuffix(n) {
     <section class="screen" id="sc-shop">
       <div class="topbar">
         <button class="icon-btn" data-back>←</button>
-        <div class="brand-name" style="text-align:center;flex:1">🛍️ Shop</div>
+        <div class="brand-name" style="text-align:center;flex:1"><span data-i18n="shop_title">🛍️ Shop</span></div>
         <span class="star-pill" id="shop-stars">0</span>
       </div>
       <div class="tabs">
@@ -1055,7 +1066,7 @@ function ordinalSuffix(n) {
     <section class="screen" id="sc-mission">
       <div class="topbar">
         <button class="icon-btn" data-back>←</button>
-        <div class="brand-name" style="text-align:center;flex:1">📋 Missions & Achievements</div>
+        <div class="brand-name" style="text-align:center;flex:1"><span data-i18n="mission_title">📋 Missions & Achievements</span></div>
         <div style="width:42px"></div>
       </div>
       <div class="tabs">
@@ -1070,7 +1081,7 @@ function ordinalSuffix(n) {
     <section class="screen" id="sc-settings">
       <div class="topbar">
         <button class="icon-btn" data-back>←</button>
-        <div class="brand-name" style="text-align:center;flex:1">⚙️ Settings</div>
+        <div class="brand-name" style="text-align:center;flex:1"><span data-i18n="settings_title">⚙️ Settings</span></div>
         <button class="icon-btn" id="btn-how" title="How to Play">❓</button>
       </div>
       <div class="section-title first">Game</div>
@@ -1195,13 +1206,12 @@ function ordinalSuffix(n) {
       </div>
       <div class="board-wrap"><canvas id="board" width="900" height="900"></canvas></div>
       <div class="game-actions">
-        <button class="ga" id="ga-place" style="background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;"><span class="i">✅</span><span data-i18n="place">Place</span></button>
         <button class="ga" id="ga-undo"><span class="i">↩️</span><span data-i18n="undo">Undo</span></button>
         <button class="ga" id="ga-hint"><span class="i">💡</span><span data-i18n="hint">Hint</span></button>
         <button class="ga" id="ga-restart"><span class="i">🔄</span><span data-i18n="retry">Retry</span></button>
-        <button class="ga" id="ga-settings"><span class="i">⚙️</span>Settings</button>
-        <button class="ga" id="ga-home"><span class="i">🏠</span>Home</button>
+        <button class="ga" id="ga-resign" style="background:linear-gradient(135deg,#ff5a6a,#c92a3c);color:#fff;font-weight:900;"><span class="i">🏳️</span><span data-i18n="resign">Resign</span></button>
       </div>
+      <button id="ga-place" class="ga-place-fab"><span data-i18n="place">Place</span></button>
     </section>
 
     <!-- ========== MODALS ========== -->
@@ -1267,26 +1277,54 @@ function ordinalSuffix(n) {
 
   // i18n translation map
   const I18N = {
-    en: { place:'Place', undo:'Undo', hint:'Hint', retry:'Retry', settings:'Settings', home:'Home',
+    en: { place:'Place', undo:'Undo', hint:'Hint', retry:'Retry', settings:'Settings', home:'Home', resign:'Resign',
           concede_title:'Resign?', concede_desc:'Leaving now will count as a loss.',
           profile:'Profile', rank:'Rank', shop:'Shop', mission:'Mission', how:'How to Play',
           ai_easy:'Easy', ai_normal:'Normal', ai_hard:'Hard', friend:'Friend', play_ai:'Play vs AI',
-          total_rank:'Total Rank', weekly_top:'Weekly TOP', last_week:'Last Week', hard_king:'Hard King' },
-    ko: { place:'착수', undo:'무르기', hint:'힌트', retry:'다시', settings:'설정', home:'홈',
+          total_rank:'Total Rank', weekly_top:'Weekly TOP', last_week:'Last Week', hard_king:'Hard King',
+          ai_match:'AI Match', friend_match:'Play vs Friend', friend_match_sub:'Alternate turns on one device',
+          nav_home:'Home', nav_rank:'Ranking', nav_shop:'Shop', nav_mission:'Mission', nav_profile:'Profile',
+          ranking_title:'🏆 Ranking', shop_title:'🛍️ Shop', mission_title:'📋 Missions & Achievements', settings_title:'⚙️ Settings',
+          ready:'READY', ready_sent:'✓ Ready (waiting host)', start:'▶ START', waiting_ready:'Waiting…',
+          press_ready:'Press READY when you are set', waiting_host_start:'Waiting for host to start…',
+          guest_ready:'Opponent is ready! Start the match?', waiting_guest_ready:'Waiting for opponent to ready up…',
+          cancel_room:'Cancel room', leave_room:'Leave room', waiting:'Waiting…', wager:'wager', room:'Room' },
+    ko: { place:'착수', undo:'무르기', hint:'힌트', retry:'다시', settings:'설정', home:'홈', resign:'기권',
           concede_title:'기권하시겠습니까?', concede_desc:'지금 나가면 패배로 기록됩니다.',
           profile:'프로필', rank:'랭킹', shop:'상점', mission:'미션', how:'플레이 방법',
           ai_easy:'쉬움', ai_normal:'보통', ai_hard:'어려움', friend:'친구', play_ai:'AI 대전',
-          total_rank:'누적 랭킹', weekly_top:'주간 TOP', last_week:'지난 주', hard_king:'하드 킹' },
-    ja: { place:'着手', undo:'待った', hint:'ヒント', retry:'再戦', settings:'設定', home:'ホーム',
+          total_rank:'누적 랭킹', weekly_top:'주간 TOP', last_week:'지난 주', hard_king:'하드 킹',
+          ai_match:'AI 대전', friend_match:'친구와 대전', friend_match_sub:'한 기기에서 번갈아 플레이',
+          nav_home:'홈', nav_rank:'랭킹', nav_shop:'상점', nav_mission:'미션', nav_profile:'프로필',
+          ranking_title:'🏆 랭킹', shop_title:'🛍️ 상점', mission_title:'📋 미션 & 업적', settings_title:'⚙️ 설정',
+          ready:'레디', ready_sent:'✓ 레디 완료 (호스트 대기)', start:'▶ 시작', waiting_ready:'대기 중…',
+          press_ready:'준비되면 레디를 누르세요', waiting_host_start:'호스트의 시작을 기다리는 중…',
+          guest_ready:'상대가 준비됐습니다! 시작할까요?', waiting_guest_ready:'상대의 레디를 기다리는 중…',
+          cancel_room:'방 취소', leave_room:'방 나가기', waiting:'대기 중…', wager:'베팅', room:'방' },
+    ja: { place:'着手', undo:'待った', hint:'ヒント', retry:'再戦', settings:'設定', home:'ホーム', resign:'投了',
           concede_title:'投了しますか?', concede_desc:'退出すると敗北として記録されます。',
           profile:'プロフィール', rank:'ランキング', shop:'ショップ', mission:'ミッション', how:'遊び方',
           ai_easy:'やさしい', ai_normal:'ふつう', ai_hard:'むずかしい', friend:'フレンド', play_ai:'AI対戦',
-          total_rank:'累計ランキング', weekly_top:'週間TOP', last_week:'先週', hard_king:'ハード王' },
-    zh: { place:'落子', undo:'悔棋', hint:'提示', retry:'重来', settings:'设置', home:'主页',
+          total_rank:'累計ランキング', weekly_top:'週間TOP', last_week:'先週', hard_king:'ハード王',
+          ai_match:'AI対戦', friend_match:'フレンド対戦', friend_match_sub:'一台の端末で交代で対局',
+          nav_home:'ホーム', nav_rank:'ランキング', nav_shop:'ショップ', nav_mission:'ミッション', nav_profile:'プロフィール',
+          ranking_title:'🏆 ランキング', shop_title:'🛍️ ショップ', mission_title:'📋 ミッション & アチーブメント', settings_title:'⚙️ 設定',
+          ready:'準備完了', ready_sent:'✓ 準備OK (ホスト待ち)', start:'▶ 開始', waiting_ready:'待機中…',
+          press_ready:'準備できたら押してください', waiting_host_start:'ホストの開始を待っています…',
+          guest_ready:'対戦相手の準備ができました!開始しますか?', waiting_guest_ready:'相手の準備を待っています…',
+          cancel_room:'部屋をキャンセル', leave_room:'部屋を出る', waiting:'待機中…', wager:'掛け金', room:'ルーム' },
+    zh: { place:'落子', undo:'悔棋', hint:'提示', retry:'重来', settings:'设置', home:'主页', resign:'认输',
           concede_title:'要投降吗?', concede_desc:'现在退出将记为失败。',
           profile:'个人资料', rank:'排行榜', shop:'商店', mission:'任务', how:'玩法',
           ai_easy:'简单', ai_normal:'普通', ai_hard:'困难', friend:'好友', play_ai:'对战AI',
-          total_rank:'累计排行', weekly_top:'周TOP', last_week:'上周', hard_king:'困难王' },
+          total_rank:'累计排行', weekly_top:'周TOP', last_week:'上周', hard_king:'困难王',
+          ai_match:'AI对战', friend_match:'好友对战', friend_match_sub:'在同一设备交替落子',
+          nav_home:'主页', nav_rank:'排行榜', nav_shop:'商店', nav_mission:'任务', nav_profile:'资料',
+          ranking_title:'🏆 排行榜', shop_title:'🛍️ 商店', mission_title:'📋 任务 & 成就', settings_title:'⚙️ 设置',
+          ready:'准备', ready_sent:'✓ 已准备 (等待房主)', start:'▶ 开始', waiting_ready:'等待中…',
+          press_ready:'准备好请按下', waiting_host_start:'等待房主开始…',
+          guest_ready:'对手已准备好!开始对局?', waiting_guest_ready:'等待对手准备…',
+          cancel_room:'取消房间', leave_room:'离开房间', waiting:'等待中…', wager:'下注', room:'房间' },
   };
   function tr(key) {
     const lang = (settings && settings.language) || 'en';
@@ -1400,6 +1438,10 @@ function ordinalSuffix(n) {
   if (!profile.id) profile.id = genUserId();
   // Bootstrap: every connected user starts with at least 10,000 stars
   if ((profile.stars | 0) < 10000) profile.stars = 10000;
+  // Force English-only default nickname: any non-ASCII auto-nick becomes "Player###"
+  if (!profile.nickname || !/^[\x20-\x7E]+$/.test(String(profile.nickname))) {
+    profile.nickname = 'Player' + Math.floor(Math.random() * 900 + 100);
+  }
   // Migrate AI wins - for existing players, seed from historical wins (easy+normal+hard)
   if (typeof profile.aiWins !== 'number') {
     profile.aiWins = ((profile.easyWins | 0) + (profile.normalWins | 0) + (profile.hardWins | 0));
@@ -1590,6 +1632,7 @@ function ordinalSuffix(n) {
     game.gameOver = false;
     game.hintCell = null;
     game.pendingCell = null;
+    try { togglePlaceFab(false); } catch {}
     game.winLine = null;
     game.startedAt = Date.now();
     if (game.timerHandle) clearInterval(game.timerHandle);
@@ -1823,8 +1866,15 @@ function ordinalSuffix(n) {
     if (!cell) return;
     if (game.board[cell.y][cell.x] !== EMPTY) return;
     game.pendingCell = cell;
+    togglePlaceFab(true);
     draw();
     try { playTap(); } catch {}
+  }
+
+  function togglePlaceFab(on) {
+    const el = $('#ga-place');
+    if (!el) return;
+    el.classList.toggle('on', !!on);
   }
 
   function commitPendingMove() {
@@ -1835,10 +1885,12 @@ function ordinalSuffix(n) {
       const mySide = Online.mySide();
       if (game.current !== (mySide === 1 ? HUMAN : AI_PLAYER)) return;
       game.pendingCell = null;
+      togglePlaceFab(false);
       Online.sendMove(p.x, p.y);
       return;
     }
     game.pendingCell = null;
+    togglePlaceFab(false);
     placeStone(p.x, p.y);
   }
 
@@ -2416,7 +2468,7 @@ function ordinalSuffix(n) {
           <div class="rank-pos ${cls}">${label}</div>
           <div class="rank-avatar">${avatar}</div>
           <div class="rank-mid">
-            <div class="rank-name">${escapeHtml(r.nickname || '-')}</div>
+            <div class="rank-name">${escapeHtml(r.nickname || '-')} <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-size:10px;font-weight:900;vertical-align:middle;">LV ${Math.min(100, Math.floor(((r.aiWins|0) || (((r.totalWins|0))||0))/10) + 1)}</span></div>
             <div class="rank-sub">${sub}</div>
           </div>
           <div class="rank-right">${rightPrimary}<small>${(r.totalGames || 0)}Match</small></div>
@@ -2575,8 +2627,19 @@ function ordinalSuffix(n) {
   }));
 
   // Footer nav
-  $$('[data-nav]').forEach(b => b.addEventListener('click', () => {
+  $$('[data-nav]').forEach(b => b.addEventListener('click', (e) => {
     playTap();
+    const gs = $('#sc-game');
+    if (gs && gs.classList.contains('active') && !game.gameOver) {
+      e.preventDefault(); e.stopPropagation();
+      openConfirm(tr('concede_title'), tr('concede_desc'), () => {
+        if (game.timerHandle) clearInterval(game.timerHandle);
+        if (game.mode === MODE_PVP) { try { Online.leaveRoom(); } catch {} game.gameOver = true; }
+        else { game.gameOver = true; endGame(AI_PLAYER); }
+        setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 50);
+      });
+      return;
+    }
     const nav = b.dataset.nav;
     if (nav === 'home')    { show('sc-home'); syncHome(); }
     else if (nav === 'rank') { show('sc-rank'); renderRanks(); }
@@ -2652,24 +2715,39 @@ function ordinalSuffix(n) {
   // Game actions
   $('#ga-place').addEventListener('click', () => { playTap(); commitPendingMove(); });
   $('#btn-prof-settings').addEventListener('click', () => { playTap(); show('sc-settings'); });
-  $('#ga-home').addEventListener('click', () => {
-    playTap();
-    // Mid-game AI: confirm concede → counts as loss
-    if (game.mode === MODE_AI && !game.gameOver && game.history && game.history.length > 0) {
-      openConfirm(tr('concede_title') || 'Resign?', tr('concede_desc') || 'Leaving now will count as a loss.', () => {
-        if (game.timerHandle) clearInterval(game.timerHandle);
+  // Mid-game guard: when game is in progress, nav buttons (back, nav-bar) force resign confirmation.
+  function isInGame() {
+    const gs = $('#sc-game');
+    if (!gs || !gs.classList.contains('active')) return false;
+    return !game.gameOver;
+  }
+  function resignFlow(onDone) {
+    openConfirm(tr('concede_title'), tr('concede_desc'), () => {
+      if (game.timerHandle) clearInterval(game.timerHandle);
+      if (game.mode === MODE_PVP) {
+        try { Online.leaveRoom(); } catch {}
+        game.gameOver = true;
+      } else {
         game.gameOver = true;
         endGame(AI_PLAYER);
-        setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 50);
-      });
-      return;
-    }
-    if (game.mode === MODE_PVP && !game.gameOver) {
-      try { Online.leaveRoom(); } catch {}
-    }
-    if (game.timerHandle) clearInterval(game.timerHandle);
-    show('sc-home'); syncHome();
+      }
+      if (onDone) onDone();
+    });
+  }
+  $('#ga-resign').addEventListener('click', () => {
+    playTap();
+    if (game.gameOver) { show('sc-home'); syncHome(); return; }
+    resignFlow(() => { setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 50); });
   });
+  // Global guard: any "data-back" inside game screen also triggers resign
+  document.addEventListener('click', (e) => {
+    const t = e.target && e.target.closest && e.target.closest('[data-back]');
+    if (!t) return;
+    if (isInGame()) {
+      e.preventDefault(); e.stopPropagation();
+      resignFlow(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); });
+    }
+  }, true);
   $('#ga-restart').addEventListener('click', () => { playTap(); newGame(); });
   $('#ga-hint').addEventListener('click', () => { playTap(); showHint(); });
   $('#ga-undo').addEventListener('click', () => {
@@ -2686,7 +2764,7 @@ function ordinalSuffix(n) {
     updateMatchInfo();
     draw();
   });
-  $('#ga-settings').addEventListener('click', () => { playTap(); show('sc-settings'); });
+  // (in-game Settings button removed — settings only via Profile)
 
   // Game result modal actions
   $('#mr-again').addEventListener('click', () => {
@@ -2759,6 +2837,7 @@ function ordinalSuffix(n) {
     $$('#seg-vib button').forEach(b => b.classList.toggle('on', (b.dataset.v === '1') === !!settings.vibrate));
     $$('#seg-lang button').forEach(b => b.classList.toggle('on', b.dataset.lang === (settings.language || 'en')));
     applyI18n();
+    try { syncHome(); } catch {}
   }
 
   // Reset
@@ -2866,6 +2945,7 @@ function ordinalSuffix(n) {
           totalLosses: profile.totalLosses | 0,
           totalGames: profile.totalGames | 0,
           hardWins: profile.hardWins | 0,
+          aiWins: profile.aiWins | 0,
           bestStreak: profile.bestStreak | 0,
           weeklyKey: profile.weeklyKey || '',
           weeklyWins: profile.weeklyWins | 0,
@@ -3037,7 +3117,8 @@ function ordinalSuffix(n) {
           guestId: profile.id,
           guestName: profile.nickname,
           guestAvatar: (avatarItem && avatarItem.emoji) || '🐻',
-          status: 'playing',
+          status: 'joined',
+          guestReady: false,
           updatedAt: Date.now(),
         });
         currentRoom = { id: code, role: 'guest', mySide: 2, wager };
@@ -3068,8 +3149,13 @@ function ordinalSuffix(n) {
     function applyRoomState(v) {
       if (!currentRoom) return;
       currentRoom.state = v;
+      // Handshake screens (joined → guestReady → playing)
+      if (v.status === 'joined' || v.status === 'ready') {
+        try { openRoomReadyScreen && openRoomReadyScreen(v, currentRoom.role); } catch {}
+      }
       if (v.status === 'playing' && !currentRoom.started) {
         currentRoom.started = true;
+        try { closeRoomReadyScreen && closeRoomReadyScreen(); } catch {}
         try { closeFriendOnlinePanel(); } catch {}
         game.mode = MODE_PVP;
         show('sc-game');
@@ -3140,6 +3226,29 @@ function ordinalSuffix(n) {
       return false;
     }
 
+    async function setGuestReady(val) {
+      const d = ready();
+      if (!d || !currentRoom || currentRoom.role !== 'guest') return;
+      try {
+        await d.ref(ROOMS_PATH + '/' + currentRoom.id).update({
+          guestReady: !!val,
+          status: val ? 'ready' : 'joined',
+          updatedAt: Date.now(),
+        });
+      } catch (e) { console.warn('setGuestReady failed', e); }
+    }
+
+    async function startMatch() {
+      const d = ready();
+      if (!d || !currentRoom || currentRoom.role !== 'host') return;
+      try {
+        await d.ref(ROOMS_PATH + '/' + currentRoom.id).update({
+          status: 'playing',
+          updatedAt: Date.now(),
+        });
+      } catch (e) { console.warn('startMatch failed', e); }
+    }
+
     function leaveRoom(silent) {
       roomListeners.forEach(l => { try { l.ref.off('value', l.cb); } catch {} });
       roomListeners = [];
@@ -3153,6 +3262,7 @@ function ordinalSuffix(n) {
       ready, syncRanksFromCloud, pushLeader,
       registerPresence, touchPresence, fetchPresence,
       fetchOpenRooms, createRoom, joinRoom, cancelRoom,
+      setGuestReady, startMatch,
       sendMove, leaveRoom,
       inRoom: () => !!currentRoom,
       mySide: () => currentRoom ? currentRoom.mySide : 0,
@@ -3332,6 +3442,78 @@ function ordinalSuffix(n) {
       await Online.cancelRoom();
       closeFriendOnlinePanel();
     });
+  }
+
+  let _readyPanel = null;
+  function closeRoomReadyScreen() {
+    if (_readyPanel && _readyPanel.parentNode) _readyPanel.parentNode.removeChild(_readyPanel);
+    _readyPanel = null;
+  }
+  function openRoomReadyScreen(v, role) {
+    // Host side while guest hasn't joined yet stays in waiting panel
+    if (role === 'host' && !v.guestId) return;
+    closeFriendOnlinePanel();
+    if (_readyPanel) {
+      // Just update state
+      updateRoomReadyScreen(v, role);
+      return;
+    }
+    const p = document.createElement('div');
+    _readyPanel = p;
+    p.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.92);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(10px);font-family:inherit;';
+    p.innerHTML =
+      '<div style="background:linear-gradient(160deg,#0b4f3a,#136b4a 50%,#1fb37f);border-radius:24px;padding:26px 22px;width:min(94vw,400px);box-shadow:0 30px 80px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;text-align:center;">'
+      + '  <div id="fa-ready-title" style="font-size:22px;font-weight:900;margin-bottom:4px;"></div>'
+      + '  <div id="fa-ready-sub" style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:18px;"></div>'
+      + '  <div style="display:flex;align-items:center;justify-content:space-around;gap:12px;margin-bottom:18px;">'
+      + '    <div style="flex:1;padding:14px;border-radius:14px;background:rgba(0,0,0,.28);">'
+      + '      <div id="fa-ready-hostAva" style="font-size:34px;">🐻</div>'
+      + '      <div id="fa-ready-hostName" style="font-weight:900;margin-top:4px;"></div>'
+      + '      <div style="font-size:10px;color:#ffd56b;">HOST</div>'
+      + '    </div>'
+      + '    <div style="font-weight:900;font-size:18px;color:#ffd56b;">VS</div>'
+      + '    <div style="flex:1;padding:14px;border-radius:14px;background:rgba(0,0,0,.28);">'
+      + '      <div id="fa-ready-guestAva" style="font-size:34px;">🐻</div>'
+      + '      <div id="fa-ready-guestName" style="font-weight:900;margin-top:4px;"></div>'
+      + '      <div id="fa-ready-guestTag" style="font-size:10px;color:#9cf0c4;">GUEST</div>'
+      + '    </div>'
+      + '  </div>'
+      + '  <div id="fa-ready-wager" style="font-size:13px;margin-bottom:14px;">⭐ 0 wager</div>'
+      + '  <button id="fa-ready-action" style="width:100%;padding:14px;border:none;border-radius:14px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;font-size:15px;cursor:pointer;margin-bottom:8px;"></button>'
+      + '  <button id="fa-ready-cancel" style="width:100%;padding:11px;border:none;border-radius:14px;background:rgba(255,255,255,.15);color:#fff;font-weight:800;cursor:pointer;"></button>'
+      + '</div>';
+    document.body.appendChild(p);
+    p.querySelector('#fa-ready-cancel').addEventListener('click', async () => {
+      if (role === 'host') { try { await Online.cancelRoom(); } catch {} }
+      else { try { Online.leaveRoom(); } catch {} }
+      closeRoomReadyScreen();
+    });
+    p.querySelector('#fa-ready-action').addEventListener('click', async () => {
+      if (role === 'guest') { await Online.setGuestReady(true); }
+      else if (role === 'host') { if (v.guestReady || (currentRoomState && currentRoomState.guestReady)) await Online.startMatch(); else toast('Waiting for opponent ready'); }
+    });
+    updateRoomReadyScreen(v, role);
+  }
+  let currentRoomState = null;
+  function updateRoomReadyScreen(v, role) {
+    currentRoomState = v;
+    if (!_readyPanel) return;
+    const $q = s => _readyPanel.querySelector(s);
+    $q('#fa-ready-hostAva').textContent = v.hostAvatar || '🐻';
+    $q('#fa-ready-hostName').textContent = v.hostName || 'Host';
+    $q('#fa-ready-guestAva').textContent = v.guestAvatar || '❔';
+    $q('#fa-ready-guestName').textContent = v.guestName || tr('waiting') || 'Waiting…';
+    $q('#fa-ready-wager').textContent = '⭐ ' + Number(v.wager || 0).toLocaleString() + ' ' + (tr('wager') || 'wager');
+    $q('#fa-ready-title').textContent = v.title || (tr('room') || 'Room') + ' ' + (v.code || '');
+    $q('#fa-ready-cancel').textContent = (role === 'host' ? (tr('cancel_room') || 'Cancel room') : (tr('leave_room') || 'Leave room'));
+    const actionBtn = $q('#fa-ready-action');
+    if (role === 'guest') {
+      if (v.guestReady) { $q('#fa-ready-sub').textContent = tr('waiting_host_start') || 'Waiting for host to start…'; actionBtn.textContent = tr('ready_sent') || '✓ Ready (waiting host)'; actionBtn.disabled = true; actionBtn.style.opacity = '.6'; }
+      else { $q('#fa-ready-sub').textContent = tr('press_ready') || 'Press READY when you are set'; actionBtn.textContent = tr('ready') || 'READY'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+    } else {
+      if (v.guestReady) { $q('#fa-ready-sub').textContent = tr('guest_ready') || 'Opponent is ready! Start the match?'; actionBtn.textContent = tr('start') || '▶ START'; actionBtn.disabled = false; actionBtn.style.opacity = '1'; }
+      else { $q('#fa-ready-sub').textContent = tr('waiting_guest_ready') || 'Waiting for opponent to ready up…'; actionBtn.textContent = tr('waiting_ready') || 'Waiting…'; actionBtn.disabled = true; actionBtn.style.opacity = '.6'; }
+    }
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
