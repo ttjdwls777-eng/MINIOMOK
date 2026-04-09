@@ -1275,8 +1275,12 @@ function ordinalSuffix(n) {
   /* ═════════════════════════════════════════════════════════════════════════
      PROFILE & STATE
      ═════════════════════════════════════════════════════════════════════════ */
+  function genUserId() {
+    return 'u_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  }
   function defaultProfile() {
     return {
+      id: genUserId(),
       nickname: 'Player' + Math.floor(Math.random() * 900 + 100),
       avatar: 'avatar_bear',
       stars: 200,
@@ -1316,6 +1320,7 @@ function ordinalSuffix(n) {
   }
 
   let profile  = storeLoad(STORE_KEY) || defaultProfile();
+  if (!profile.id) profile.id = genUserId();
   let settings = Object.assign(defaultSettings(), storeLoad(SETTINGS_KEY) || {});
   let history  = storeLoad(HISTORY_KEY) || [];
   let missionState = storeLoad(MISSIONS_KEY) || { dayKey: dayKey(), missions: {}, claimed: {} };
@@ -2589,11 +2594,13 @@ function ordinalSuffix(n) {
      compatible with the original hub across versions.
      ═════════════════════════════════════════════════════════════════════════ */
   const Online = (function() {
-    const LEADERS_PATH = 'omokLeaders';
-    const ROOMS_PATH   = 'omokRooms';
+    const LEADERS_PATH  = 'omokLeaders';
+    const ROOMS_PATH    = 'omokRooms';
+    const PRESENCE_PATH = 'omokPresence';
     let db = null;
     let currentRoom = null;
     let roomListeners = [];
+    let presenceHandle = null;
 
     function ready() {
       if (db) return db;
@@ -2602,6 +2609,7 @@ function ordinalSuffix(n) {
       return db;
     }
 
+    /* ── Leaderboard ─────────────────────────────────────────────────────── */
     async function fetchLeaders() {
       const d = ready();
       if (!d) return null;
@@ -2643,6 +2651,7 @@ function ordinalSuffix(n) {
           bestStreak: profile.bestStreak | 0,
           weeklyKey: profile.weeklyKey || '',
           weeklyWins: profile.weeklyWins | 0,
+          stars: profile.stars | 0,
           updatedAt: Date.now(),
         });
       } catch (e) { console.warn('pushLeader failed', e); }
@@ -2661,27 +2670,124 @@ function ordinalSuffix(n) {
       return true;
     }
 
+    /* ── Presence ────────────────────────────────────────────────────────── */
+    async function registerPresence() {
+      const d = ready();
+      if (!d || !profile || !profile.id) return;
+      try {
+        const avatarItem = SHOP_ITEMS.find(i => i.id === (settings.equippedAvatar || 'avatar_bear'));
+        const ref = d.ref(PRESENCE_PATH + '/' + profile.id);
+        const payload = {
+          id: profile.id,
+          nickname: profile.nickname,
+          avatar: (avatarItem && avatarItem.emoji) || '🐻',
+          stars: profile.stars | 0,
+          wins: profile.totalWins | 0,
+          lastSeen: firebase.database.ServerValue.TIMESTAMP,
+        };
+        await ref.set(payload);
+        try { ref.onDisconnect().remove(); } catch {}
+        presenceHandle = ref;
+      } catch (e) { console.warn('presence failed', e); }
+    }
+    async function touchPresence() {
+      const d = ready();
+      if (!d || !profile || !profile.id) return;
+      try {
+        await d.ref(PRESENCE_PATH + '/' + profile.id + '/lastSeen')
+          .set(firebase.database.ServerValue.TIMESTAMP);
+        await d.ref(PRESENCE_PATH + '/' + profile.id + '/stars').set(profile.stars | 0);
+      } catch {}
+    }
+    async function fetchPresence() {
+      const d = ready(); if (!d) return [];
+      try {
+        const snap = await d.ref(PRESENCE_PATH).once('value');
+        const now = Date.now();
+        const out = [];
+        snap.forEach(ch => {
+          const v = ch.val(); if (!v) return;
+          if (ch.key === profile.id) return;
+          // Consider online if lastSeen within 90 seconds
+          if (v.lastSeen && now - Number(v.lastSeen) < 90000) {
+            out.push({
+              id: ch.key,
+              nickname: v.nickname || 'Player',
+              avatar: v.avatar || '🐻',
+              stars: Number(v.stars || 0),
+              wins: Number(v.wins || 0),
+            });
+          }
+        });
+        return out;
+      } catch (e) { return []; }
+    }
+
+    /* ── Rooms ───────────────────────────────────────────────────────────── */
     function genCode() {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let s = ''; for (let i = 0; i < 5; i++) s += chars[Math.floor(Math.random() * chars.length)];
       return s;
     }
 
-    async function createRoom() {
+    async function fetchOpenRooms() {
+      const d = ready(); if (!d) return [];
+      try {
+        const snap = await d.ref(ROOMS_PATH).once('value');
+        const out = [];
+        const now = Date.now();
+        snap.forEach(ch => {
+          const v = ch.val(); if (!v) return;
+          if (v.status !== 'waiting') return;
+          // Stale rooms (> 10 min) are ignored
+          if (v.createdAt && now - Number(v.createdAt) > 600000) return;
+          if (v.hostId === profile.id) return;
+          // Targeted rooms only visible to the target
+          if (v.targetId && v.targetId !== profile.id) return;
+          out.push({
+            id: ch.key,
+            code: v.code || ch.key,
+            hostId: v.hostId,
+            hostName: v.hostName || 'Host',
+            hostAvatar: v.hostAvatar || '🐻',
+            wager: Number(v.wager || 0),
+            targetId: v.targetId || '',
+            targetName: v.targetName || '',
+            createdAt: Number(v.createdAt || 0),
+          });
+        });
+        out.sort((a, b) => b.createdAt - a.createdAt);
+        return out;
+      } catch (e) { return []; }
+    }
+
+    async function createRoom(wager, target) {
       const d = ready();
       if (!d) { toast('Online unavailable'); return null; }
+      if ((profile.stars | 0) < (wager | 0)) { toast('Not enough stars'); return null; }
       const code = genCode();
+      const avatarItem = SHOP_ITEMS.find(i => i.id === (settings.equippedAvatar || 'avatar_bear'));
+      const hostAvatar = (avatarItem && avatarItem.emoji) || '🐻';
       try {
         await d.ref(ROOMS_PATH + '/' + code).set({
           code,
-          hostId: profile.id || ('host' + Date.now()),
+          hostId: profile.id,
           hostName: profile.nickname,
-          guestId: '', guestName: '',
+          hostAvatar,
+          guestId: '',
+          guestName: '',
+          guestAvatar: '',
+          wager: wager | 0,
+          targetId: (target && target.id) || '',
+          targetName: (target && target.nickname) || '',
           board: new Array(BOARD_SIZE * BOARD_SIZE).fill(0),
-          turn: 1, winner: 0, status: 'waiting',
-          createdAt: Date.now(), updatedAt: Date.now(),
+          turn: 1,
+          winner: 0,
+          status: 'waiting',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
         });
-        currentRoom = { id: code, role: 'host', mySide: 1 };
+        currentRoom = { id: code, role: 'host', mySide: 1, wager: wager | 0 };
         attachRoomListener(code);
         return code;
       } catch (e) { console.warn('createRoom failed', e); toast('Failed to create'); return null; }
@@ -2691,22 +2797,36 @@ function ordinalSuffix(n) {
       const d = ready();
       if (!d) { toast('Online unavailable'); return false; }
       code = String(code || '').toUpperCase().trim();
-      if (!code) { toast('Enter room code'); return false; }
+      if (!code) return false;
       try {
         const ref = d.ref(ROOMS_PATH + '/' + code);
         const snap = await ref.once('value');
         const v = snap.val();
         if (!v) { toast('Room not found'); return false; }
+        if (v.status !== 'waiting') { toast('Room unavailable'); return false; }
         if (v.guestId && v.guestId !== profile.id) { toast('Room full'); return false; }
+        const wager = Number(v.wager || 0);
+        if ((profile.stars | 0) < wager) { toast('Not enough stars'); return false; }
+        if (v.targetId && v.targetId !== profile.id) { toast('Private room'); return false; }
+        const avatarItem = SHOP_ITEMS.find(i => i.id === (settings.equippedAvatar || 'avatar_bear'));
         await ref.update({
-          guestId: profile.id || ('guest' + Date.now()),
+          guestId: profile.id,
           guestName: profile.nickname,
-          status: 'playing', updatedAt: Date.now(),
+          guestAvatar: (avatarItem && avatarItem.emoji) || '🐻',
+          status: 'playing',
+          updatedAt: Date.now(),
         });
-        currentRoom = { id: code, role: 'guest', mySide: 2 };
+        currentRoom = { id: code, role: 'guest', mySide: 2, wager };
         attachRoomListener(code);
         return true;
       } catch (e) { console.warn('joinRoom failed', e); toast('Join failed'); return false; }
+    }
+
+    async function cancelRoom() {
+      const d = ready();
+      if (!d || !currentRoom || currentRoom.role !== 'host') return;
+      try { await d.ref(ROOMS_PATH + '/' + currentRoom.id).remove(); } catch {}
+      leaveRoom(true);
     }
 
     function attachRoomListener(code) {
@@ -2723,13 +2843,24 @@ function ordinalSuffix(n) {
 
     function applyRoomState(v) {
       if (!currentRoom) return;
+      currentRoom.state = v;
+      if (v.status === 'playing' && !currentRoom.started) {
+        currentRoom.started = true;
+        try { closeFriendOnlinePanel(); } catch {}
+        game.mode = MODE_PVP;
+        show('sc-game');
+        requestAnimationFrame(() => { resize(); newGame(); });
+      }
       if (Array.isArray(v.board) && v.board.length === BOARD_SIZE * BOARD_SIZE) {
         for (let y = 0; y < BOARD_SIZE; y++)
           for (let x = 0; x < BOARD_SIZE; x++)
             game.board[y][x] = v.board[y * BOARD_SIZE + x] | 0;
       }
       game.current = (v.turn === 1) ? HUMAN : AI_PLAYER;
-      if (v.winner && !game.gameOver) { game.gameOver = true; game.winner = v.winner; }
+      if (v.winner && !game.gameOver) {
+        game.gameOver = true;
+        game.winner = v.winner;
+      }
       const nameEl = document.getElementById('name-w');
       if (nameEl) nameEl.textContent = (currentRoom.role === 'host' ? (v.guestName || 'Waiting…') : (v.hostName || 'Host'));
       try { draw(); } catch {}
@@ -2749,7 +2880,8 @@ function ordinalSuffix(n) {
         const nextTurn = currentRoom.mySide === 1 ? 2 : 1;
         const won = checkFlat(flat, x, y, currentRoom.mySide);
         await ref.update({
-          board: flat, turn: nextTurn,
+          board: flat,
+          turn: nextTurn,
           winner: won ? currentRoom.mySide : 0,
           status: won ? 'finished' : 'playing',
           updatedAt: Date.now(),
@@ -2777,9 +2909,15 @@ function ordinalSuffix(n) {
       }
     }
 
-    return { ready, syncRanksFromCloud, pushLeader, createRoom, joinRoom, sendMove, leaveRoom,
-             inRoom: () => !!currentRoom,
-             mySide: () => currentRoom ? currentRoom.mySide : 0 };
+    return {
+      ready, syncRanksFromCloud, pushLeader,
+      registerPresence, touchPresence, fetchPresence,
+      fetchOpenRooms, createRoom, joinRoom, cancelRoom,
+      sendMove, leaveRoom,
+      inRoom: () => !!currentRoom,
+      mySide: () => currentRoom ? currentRoom.mySide : 0,
+      wager: () => currentRoom ? (currentRoom.wager | 0) : 0,
+    };
   })();
 
   async function refreshCloudRanks() {
@@ -2790,47 +2928,165 @@ function ordinalSuffix(n) {
     }
   }
 
+  /* ═════════════════════════════════════════════════════════════════════════
+     FRIEND ONLINE LOBBY PANEL
+     ═════════════════════════════════════════════════════════════════════════ */
+  let _lobbyPanel = null;
+  let _lobbyTimer = null;
+  const WAGER_OPTIONS = [100, 1000, 10000];
+
+  function closeFriendOnlinePanel() {
+    if (_lobbyTimer) { clearInterval(_lobbyTimer); _lobbyTimer = null; }
+    if (_lobbyPanel) { _lobbyPanel.remove(); _lobbyPanel = null; }
+  }
+
   function openFriendOnlinePanel() {
-    let panel = document.getElementById('fa-online-panel');
-    if (panel) { panel.remove(); }
-    panel = document.createElement('div');
-    panel.id = 'fa-online-panel';
-    panel.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.85);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(6px);';
-    panel.innerHTML = '<div style="background:linear-gradient(160deg,#0b4f3a,#1fb37f);border-radius:24px;padding:28px 24px;width:min(92vw,380px);box-shadow:0 30px 80px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);">'
-      + '<div style="text-align:center;font-size:22px;font-weight:900;color:#fff;margin-bottom:6px;">Friend Online</div>'
-      + '<div style="text-align:center;font-size:12px;color:rgba(255,255,255,.75);margin-bottom:18px;">Create a room or join with a code</div>'
-      + '<button id="fa-op-create" style="width:100%;padding:14px;border:none;border-radius:14px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;font-size:15px;margin-bottom:10px;cursor:pointer;">Create Room</button>'
-      + '<div style="display:flex;gap:8px;margin-bottom:10px;">'
-      + '<input id="fa-op-code" placeholder="CODE" maxlength="5" style="flex:1;padding:13px;border-radius:12px;border:none;font-size:16px;font-weight:800;text-align:center;letter-spacing:.15em;text-transform:uppercase;background:rgba(255,255,255,.95);color:#0b4f3a;" />'
-      + '<button id="fa-op-join" style="padding:13px 20px;border:none;border-radius:12px;background:#ffd56b;color:#3a1a00;font-weight:900;cursor:pointer;">Join</button>'
+    closeFriendOnlinePanel();
+    const panel = document.createElement('div');
+    _lobbyPanel = panel;
+    panel.id = 'fa-lobby-panel';
+    panel.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.88);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(8px);font-family:inherit;';
+    panel.innerHTML =
+      '<div style="background:linear-gradient(160deg,#0b4f3a 0%,#136b4a 50%,#1fb37f 100%);border-radius:24px;padding:22px 20px;width:min(94vw,460px);max-height:90vh;overflow-y:auto;box-shadow:0 30px 80px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'
+      + '  <div style="font-size:20px;font-weight:900;">🌐 Friend Online</div>'
+      + '  <button id="fa-lb-close" style="border:none;background:rgba(255,255,255,.15);color:#fff;width:34px;height:34px;border-radius:50%;font-size:18px;font-weight:900;cursor:pointer;">✕</button>'
       + '</div>'
-      + '<div id="fa-op-status" style="text-align:center;font-size:12px;color:#fff;min-height:18px;margin:6px 0;"></div>'
-      + '<button id="fa-op-close" style="width:100%;padding:10px;border:none;border-radius:12px;background:rgba(255,255,255,.12);color:#fff;font-weight:700;cursor:pointer;margin-top:4px;">Close</button>'
+      + '<div style="font-size:12px;color:rgba(255,255,255,.78);margin-bottom:14px;">Create a room with a star wager, join an open room, or challenge an online player.</div>'
+      + '<div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#ffd56b;margin-bottom:8px;">Create Room</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:18px;">'
+      + WAGER_OPTIONS.map(w =>
+          '<button class="fa-lb-create" data-wager="' + w + '" style="padding:14px 6px;border:none;border-radius:14px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.25);">'
+          + '<div style="font-size:11px;opacity:.7;">WAGER</div>'
+          + '<div style="font-size:17px;font-weight:900;">⭐ ' + w.toLocaleString() + '</div>'
+          + '</button>'
+        ).join('')
+      + '</div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
+      + '  <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#ffd56b;">Open Rooms</div>'
+      + '  <button id="fa-lb-refresh" style="border:none;background:rgba(255,255,255,.15);color:#fff;padding:4px 12px;border-radius:10px;font-size:11px;font-weight:700;cursor:pointer;">⟳ Refresh</button>'
+      + '</div>'
+      + '<div id="fa-lb-rooms" style="background:rgba(0,0,0,.22);border-radius:14px;padding:10px;min-height:60px;margin-bottom:18px;max-height:150px;overflow-y:auto;"></div>'
+      + '<div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#ffd56b;margin-bottom:6px;">Online Players</div>'
+      + '<div id="fa-lb-players" style="background:rgba(0,0,0,.22);border-radius:14px;padding:10px;min-height:60px;max-height:180px;overflow-y:auto;"></div>'
+      + '<div style="text-align:center;font-size:11px;color:rgba(255,255,255,.55);margin-top:12px;">You: <b>' + escapeHtml(profile.nickname) + '</b> · ⭐ ' + (profile.stars | 0).toLocaleString() + '</div>'
       + '</div>';
     document.body.appendChild(panel);
-    panel.querySelector('#fa-op-close').addEventListener('click', () => panel.remove());
-    panel.querySelector('#fa-op-create').addEventListener('click', async () => {
-      panel.querySelector('#fa-op-status').textContent = 'Creating room…';
-      const code = await Online.createRoom();
-      if (code) {
-        panel.querySelector('#fa-op-status').innerHTML = 'Share code: <b style="font-size:18px;color:#ffd56b;letter-spacing:.18em;">' + code + '</b>';
-        game.mode = MODE_PVP;
-        show('sc-game');
-        requestAnimationFrame(() => { resize(); newGame(); });
-        setTimeout(() => panel.remove(), 2400);
-      }
+    panel.querySelector('#fa-lb-close').addEventListener('click', closeFriendOnlinePanel);
+    panel.querySelectorAll('.fa-lb-create').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const w = Number(btn.dataset.wager || 0);
+        if ((profile.stars | 0) < w) { toast('Not enough stars'); return; }
+        const code = await Online.createRoom(w);
+        if (code) openWaitingScreen(code, w);
+      });
     });
-    panel.querySelector('#fa-op-join').addEventListener('click', async () => {
-      const val = panel.querySelector('#fa-op-code').value.toUpperCase();
-      panel.querySelector('#fa-op-status').textContent = 'Joining…';
-      const ok = await Online.joinRoom(val);
-      if (ok) {
-        panel.querySelector('#fa-op-status').textContent = 'Joined!';
-        game.mode = MODE_PVP;
-        show('sc-game');
-        requestAnimationFrame(() => { resize(); newGame(); });
-        setTimeout(() => panel.remove(), 700);
+    panel.querySelector('#fa-lb-refresh').addEventListener('click', refreshLobbyLists);
+    refreshLobbyLists();
+    _lobbyTimer = setInterval(refreshLobbyLists, 5000);
+    Online.touchPresence();
+  }
+
+  async function refreshLobbyLists() {
+    if (!_lobbyPanel) return;
+    const [rooms, players] = await Promise.all([Online.fetchOpenRooms(), Online.fetchPresence()]);
+    const roomsBox = _lobbyPanel.querySelector('#fa-lb-rooms');
+    const playersBox = _lobbyPanel.querySelector('#fa-lb-players');
+    if (roomsBox) {
+      if (!rooms.length) {
+        roomsBox.innerHTML = '<div style="text-align:center;padding:14px;color:rgba(255,255,255,.5);font-size:12px;">No open rooms yet</div>';
+      } else {
+        roomsBox.innerHTML = rooms.map(r =>
+          '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:rgba(255,255,255,.08);margin-bottom:6px;">'
+          + '  <div style="font-size:22px;">' + (r.hostAvatar || '🐻') + '</div>'
+          + '  <div style="flex:1;min-width:0;">'
+          + '    <div style="font-weight:800;font-size:13px;">' + escapeHtml(r.hostName) + (r.targetId ? ' <span style="font-size:10px;color:#ffd56b;">(invite)</span>' : '') + '</div>'
+          + '    <div style="font-size:11px;color:rgba(255,255,255,.7);">⭐ ' + r.wager.toLocaleString() + ' wager</div>'
+          + '  </div>'
+          + '  <button class="fa-lb-join" data-code="' + r.code + '" style="padding:8px 14px;border:none;border-radius:10px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;cursor:pointer;font-size:12px;">Join</button>'
+          + '</div>'
+        ).join('');
+        roomsBox.querySelectorAll('.fa-lb-join').forEach(b => {
+          b.addEventListener('click', async () => {
+            const ok = await Online.joinRoom(b.dataset.code);
+            if (ok) closeFriendOnlinePanel();
+          });
+        });
       }
+    }
+    if (playersBox) {
+      if (!players.length) {
+        playersBox.innerHTML = '<div style="text-align:center;padding:14px;color:rgba(255,255,255,.5);font-size:12px;">No other players online</div>';
+      } else {
+        playersBox.innerHTML = players.map(p =>
+          '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:rgba(255,255,255,.08);margin-bottom:6px;">'
+          + '  <div style="position:relative;font-size:22px;">' + (p.avatar || '🐻') + '<span style="position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:#35f59a;box-shadow:0 0 6px #35f59a;border:2px solid #0b4f3a;"></span></div>'
+          + '  <div style="flex:1;min-width:0;">'
+          + '    <div style="font-weight:800;font-size:13px;">' + escapeHtml(p.nickname) + '</div>'
+          + '    <div style="font-size:11px;color:rgba(255,255,255,.7);">⭐ ' + p.stars.toLocaleString() + ' · 🏆 ' + p.wins + '</div>'
+          + '  </div>'
+          + '  <button class="fa-lb-chal" data-id="' + p.id + '" data-name="' + escapeHtml(p.nickname) + '" style="padding:8px 14px;border:none;border-radius:10px;background:rgba(255,255,255,.18);color:#fff;font-weight:800;cursor:pointer;font-size:12px;">Challenge</button>'
+          + '</div>'
+        ).join('');
+        playersBox.querySelectorAll('.fa-lb-chal').forEach(b => {
+          b.addEventListener('click', () => openChallengeDialog({ id: b.dataset.id, nickname: b.dataset.name }));
+        });
+      }
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c]));
+  }
+
+  function openChallengeDialog(target) {
+    const dlg = document.createElement('div');
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.9);display:flex;align-items:center;justify-content:center;z-index:10000;backdrop-filter:blur(6px);';
+    dlg.innerHTML =
+      '<div style="background:linear-gradient(160deg,#0b4f3a,#1fb37f);border-radius:20px;padding:24px;width:min(90vw,340px);box-shadow:0 30px 80px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);color:#fff;">'
+      + '  <div style="font-size:18px;font-weight:900;text-align:center;margin-bottom:6px;">Challenge</div>'
+      + '  <div style="text-align:center;font-size:13px;color:rgba(255,255,255,.8);margin-bottom:14px;">vs <b>' + escapeHtml(target.nickname) + '</b></div>'
+      + '  <div style="font-size:11px;color:#ffd56b;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;">Star Wager</div>'
+      + '  <input id="fa-ch-wager" type="number" min="1" value="100" style="width:100%;padding:13px;border:none;border-radius:12px;background:rgba(255,255,255,.95);color:#0b4f3a;font-weight:900;font-size:16px;text-align:center;margin-bottom:14px;" />'
+      + '  <div style="display:flex;gap:8px;">'
+      + '    <button id="fa-ch-cancel" style="flex:1;padding:12px;border:none;border-radius:12px;background:rgba(255,255,255,.15);color:#fff;font-weight:800;cursor:pointer;">Cancel</button>'
+      + '    <button id="fa-ch-send" style="flex:1;padding:12px;border:none;border-radius:12px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;cursor:pointer;">Send</button>'
+      + '  </div>'
+      + '</div>';
+    document.body.appendChild(dlg);
+    dlg.querySelector('#fa-ch-cancel').addEventListener('click', () => dlg.remove());
+    dlg.querySelector('#fa-ch-send').addEventListener('click', async () => {
+      const w = Math.max(1, Number(dlg.querySelector('#fa-ch-wager').value || 0));
+      if ((profile.stars | 0) < w) { toast('Not enough stars'); return; }
+      dlg.remove();
+      const code = await Online.createRoom(w, target);
+      if (code) openWaitingScreen(code, w, target);
+    });
+  }
+
+  function openWaitingScreen(code, wager, target) {
+    closeFriendOnlinePanel();
+    const wait = document.createElement('div');
+    _lobbyPanel = wait;
+    wait.id = 'fa-wait-panel';
+    wait.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.92);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(10px);';
+    wait.innerHTML =
+      '<div style="background:linear-gradient(160deg,#0b4f3a,#1fb37f);border-radius:24px;padding:32px 26px;width:min(92vw,380px);box-shadow:0 30px 80px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;text-align:center;">'
+      + '  <div style="font-size:22px;font-weight:900;margin-bottom:6px;">Waiting for Opponent</div>'
+      + '  <div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:20px;">' + (target ? ('Challenge sent to <b>' + escapeHtml(target.nickname) + '</b>') : 'Your room is now visible to other players') + '</div>'
+      + '  <div style="display:inline-block;padding:18px 28px;border-radius:18px;background:rgba(0,0,0,.28);margin-bottom:16px;">'
+      + '    <div style="font-size:11px;color:#ffd56b;font-weight:800;letter-spacing:.12em;">ROOM CODE</div>'
+      + '    <div style="font-size:30px;font-weight:900;letter-spacing:.22em;color:#ffd56b;">' + code + '</div>'
+      + '    <div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:6px;">⭐ ' + (wager || 0).toLocaleString() + ' wager</div>'
+      + '  </div>'
+      + '  <div style="margin:10px auto 18px;width:48px;height:48px;border:4px solid rgba(255,255,255,.2);border-top-color:#ffd56b;border-radius:50%;animation:fa-spin 1s linear infinite;"></div>'
+      + '  <button id="fa-wait-cancel" style="width:100%;padding:13px;border:none;border-radius:14px;background:rgba(255,255,255,.15);color:#fff;font-weight:800;cursor:pointer;">Cancel</button>'
+      + '</div>'
+      + '<style>@keyframes fa-spin{to{transform:rotate(360deg)}}</style>';
+    document.body.appendChild(wait);
+    wait.querySelector('#fa-wait-cancel').addEventListener('click', async () => {
+      await Online.cancelRoom();
+      closeFriendOnlinePanel();
     });
   }
 
@@ -2844,8 +3100,16 @@ function ordinalSuffix(n) {
     syncHome();
     show('sc-home');
     requestAnimationFrame(resize);
-    setTimeout(() => { refreshCloudRanks(); Online.pushLeader(); }, 500);
-    setInterval(refreshCloudRanks, 60000);
+    const onlineBoot = () => {
+      if (!Online.ready()) { setTimeout(onlineBoot, 800); return; }
+      Online.pushLeader();
+      Online.registerPresence();
+      refreshCloudRanks();
+      setInterval(() => { Online.touchPresence(); }, 30000);
+      setInterval(refreshCloudRanks, 60000);
+      setInterval(() => { Online.pushLeader(); }, 90000);
+    };
+    setTimeout(onlineBoot, 400);
     setTimeout(() => {
       document.querySelectorAll('[data-action="play-pvp"]').forEach(b => {
         const clone = b.cloneNode(true);
