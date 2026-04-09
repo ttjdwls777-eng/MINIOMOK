@@ -63,30 +63,30 @@ function ordinalSuffix(n) {
 
   const SHOP_ITEMS = [
     { id: 'avatar_bear',   type: 'avatar', name: 'Bear Cub',       emoji: '🐻', price: 0    },
-    { id: 'avatar_tiger',  type: 'avatar', name: 'Tiger',       emoji: '🐯', price: 200  },
-    { id: 'avatar_fox',    type: 'avatar', name: 'Fox',         emoji: '🦊', price: 300  },
-    { id: 'avatar_cat',    type: 'avatar', name: 'Cat',       emoji: '🐱', price: 350  },
-    { id: 'avatar_dog',    type: 'avatar', name: 'Puppy',       emoji: '🐶', price: 400  },
-    { id: 'avatar_panda',  type: 'avatar', name: 'Panda',         emoji: '🐼', price: 450  },
-    { id: 'avatar_koala',  type: 'avatar', name: 'Koala',       emoji: '🐨', price: 500  },
-    { id: 'avatar_rabbit', type: 'avatar', name: 'Rabbit',         emoji: '🐰', price: 550  },
-    { id: 'avatar_wolf',   type: 'avatar', name: 'Wolf',         emoji: '🐺', price: 800  },
-    { id: 'avatar_lion',   type: 'avatar', name: 'Lion',         emoji: '🦁', price: 1000 },
-    { id: 'avatar_dragon', type: 'avatar', name: 'Dragon',       emoji: '🐲', price: 2500 },
-    { id: 'avatar_unicorn',type: 'avatar', name: 'Unicorn',       emoji: '🦄', price: 3000 },
-    { id: 'avatar_crown',  type: 'avatar', name: 'Crown',         emoji: '👑', price: 5000 },
+    { id: 'avatar_tiger',  type: 'avatar', name: 'Tiger',       emoji: '🐯', price: 6000  },
+    { id: 'avatar_fox',    type: 'avatar', name: 'Fox',         emoji: '🦊', price: 9000  },
+    { id: 'avatar_cat',    type: 'avatar', name: 'Cat',       emoji: '🐱', price: 10500  },
+    { id: 'avatar_dog',    type: 'avatar', name: 'Puppy',       emoji: '🐶', price: 12000  },
+    { id: 'avatar_panda',  type: 'avatar', name: 'Panda',         emoji: '🐼', price: 13500  },
+    { id: 'avatar_koala',  type: 'avatar', name: 'Koala',       emoji: '🐨', price: 15000  },
+    { id: 'avatar_rabbit', type: 'avatar', name: 'Rabbit',         emoji: '🐰', price: 16500  },
+    { id: 'avatar_wolf',   type: 'avatar', name: 'Wolf',         emoji: '🐺', price: 24000  },
+    { id: 'avatar_lion',   type: 'avatar', name: 'Lion',         emoji: '🦁', price: 30000 },
+    { id: 'avatar_dragon', type: 'avatar', name: 'Dragon',       emoji: '🐲', price: 75000 },
+    { id: 'avatar_unicorn',type: 'avatar', name: 'Unicorn',       emoji: '🦄', price: 90000 },
+    { id: 'avatar_crown',  type: 'avatar', name: 'Crown',         emoji: '👑', price: 150000 },
 
     { id: 'board_classic', type: 'board',  name: 'Wood',         emoji: '🪵', price: 0    },
-    { id: 'board_jade',    type: 'board',  name: 'Jade',         emoji: '🟢', price: 600  },
-    { id: 'board_onyx',    type: 'board',  name: 'Onyx',       emoji: '⚫', price: 1200 },
-    { id: 'board_ruby',    type: 'board',  name: 'Ruby',         emoji: '🔴', price: 1800 },
-    { id: 'board_sapphire',type: 'board',  name: 'Sapphire',     emoji: '🔵', price: 2400 },
-    { id: 'board_gold',    type: 'board',  name: 'Gold',         emoji: '🟡', price: 3600 },
+    { id: 'board_jade',    type: 'board',  name: 'Jade',         emoji: '🟢', price: 18000  },
+    { id: 'board_onyx',    type: 'board',  name: 'Onyx',       emoji: '⚫', price: 36000 },
+    { id: 'board_ruby',    type: 'board',  name: 'Ruby',         emoji: '🔴', price: 54000 },
+    { id: 'board_sapphire',type: 'board',  name: 'Sapphire',     emoji: '🔵', price: 72000 },
+    { id: 'board_gold',    type: 'board',  name: 'Gold',         emoji: '🟡', price: 108000 },
 
     { id: 'stone_classic', type: 'stone',  name: 'Classic',       emoji: '⚫', price: 0    },
-    { id: 'stone_jade',    type: 'stone',  name: 'Jade Stone',       emoji: '🟢', price: 500  },
-    { id: 'stone_amber',   type: 'stone',  name: 'Amber',       emoji: '🟠', price: 800  },
-    { id: 'stone_neon',    type: 'stone',  name: 'Neon',         emoji: '💎', price: 1500 },
+    { id: 'stone_jade',    type: 'stone',  name: 'Jade Stone',       emoji: '🟢', price: 15000  },
+    { id: 'stone_amber',   type: 'stone',  name: 'Amber',       emoji: '🟠', price: 24000  },
+    { id: 'stone_neon',    type: 'stone',  name: 'Neon',         emoji: '💎', price: 45000 },
   ];
 
   const ACHIEVEMENTS = [
@@ -1029,6 +1029,7 @@ function ordinalSuffix(n) {
       <div class="tabs">
         <button class="tab on" data-tab="total">Total Rank</button>
         <button class="tab" data-tab="weekly">Weekly TOP</button>
+        <button class="tab" data-tab="prev">Last Week</button>
         <button class="tab" data-tab="hard">Hard King</button>
       </div>
       <div class="rank-list" id="rank-list"></div>
@@ -1112,6 +1113,15 @@ function ordinalSuffix(n) {
       <div class="set-row">
         Fullscreen
         <button class="btn btn-ghost btn-small" id="btn-fs-set">Toggle</button>
+      </div>
+      <div class="set-row">
+        Language
+        <div class="seg" id="seg-lang">
+          <button data-lang="en" class="on">EN</button>
+          <button data-lang="ko">KO</button>
+          <button data-lang="ja">JA</button>
+          <button data-lang="zh">ZH</button>
+        </div>
       </div>
       <div class="section-title">Data</div>
       <div class="set-row">
@@ -1252,11 +1262,16 @@ function ordinalSuffix(n) {
   /* ═════════════════════════════════════════════════════════════════════════
      TIME & WEEK
      ═════════════════════════════════════════════════════════════════════════ */
+  // Weekly season rolls over every Saturday at 12:00 local time.
+  // Each week starts Sat 12:00 and ends the following Sat 12:00.
   const weekKey = (d = new Date()) => {
-    const y = d.getFullYear();
-    const start = new Date(y, 0, 1);
-    const w = Math.ceil((((d - start) / 86400000) + start.getDay() + 1) / 7);
-    return y + '-W' + w;
+    const t = new Date(d.getTime());
+    // Shift time back so that Sat 12:00 becomes the start-of-week anchor.
+    // A "week number" = floor((t - anchor) / 7 days) where anchor = first Sat 12:00 of a fixed epoch.
+    const anchor = new Date(2024, 0, 6, 12, 0, 0).getTime(); // Jan 6 2024 was a Saturday at noon
+    const diff = t.getTime() - anchor;
+    const wk = Math.floor(diff / (7 * 24 * 60 * 60 * 1000));
+    return 'WK' + wk;
   };
   const dayKey = (d = new Date()) => {
     const pad = n => String(n).padStart(2, '0');
@@ -1283,7 +1298,7 @@ function ordinalSuffix(n) {
       id: genUserId(),
       nickname: 'Player' + Math.floor(Math.random() * 900 + 100),
       avatar: 'avatar_bear',
-      stars: 200,
+      stars: 10000,
       xp: 0,
       totalGames: 0,
       totalWins: 0,
@@ -1303,6 +1318,7 @@ function ordinalSuffix(n) {
   function defaultSettings() {
     return {
       difficulty: AI_NORMAL,
+      language: 'en',
       sound: true,
       showMark: true,
       showCoord: false,
@@ -1321,6 +1337,8 @@ function ordinalSuffix(n) {
 
   let profile  = storeLoad(STORE_KEY) || defaultProfile();
   if (!profile.id) profile.id = genUserId();
+  // Bootstrap: every connected user starts with at least 10,000 stars
+  if ((profile.stars | 0) < 10000) profile.stars = 10000;
   let settings = Object.assign(defaultSettings(), storeLoad(SETTINGS_KEY) || {});
   let history  = storeLoad(HISTORY_KEY) || [];
   let missionState = storeLoad(MISSIONS_KEY) || { dayKey: dayKey(), missions: {}, claimed: {} };
@@ -1330,10 +1348,16 @@ function ordinalSuffix(n) {
 
   // rollover weekly
   if (profile.weeklyKey !== weekKey()) {
+    // snapshot cumulative totals from the week we just finished
+    profile.prevWeekTotalWins   = profile.totalWins   | 0;
+    profile.prevWeekTotalLosses = profile.totalLosses | 0;
+    profile.prevWeekTotalGames  = profile.totalGames  | 0;
+    profile.prevWeekKey = profile.weeklyKey || '';
     profile.weeklyKey = weekKey();
     profile.weeklyWins = 0;
     profile.weeklyGames = 0;
   }
+  if (typeof profile.prevWeekTotalWins !== 'number') profile.prevWeekTotalWins = 0;
   // rollover daily missions
   if (missionState.dayKey !== dayKey()) {
     missionState = { dayKey: dayKey(), missions: {}, claimed: {} };
@@ -2212,16 +2236,26 @@ function ordinalSuffix(n) {
     const ranks = seedBotsIfNeeded();
     const wk = weekKey();
     let list;
+    // Keep only English/ASCII nicknames for display
+    const englishOnly = r => {
+      const n = String(r && r.nickname || '');
+      return /^[\x20-\x7E]+$/.test(n) && n.trim().length > 0;
+    };
+    const filtered = ranks.filter(englishOnly);
     if (rankTab === 'weekly') {
-      list = ranks
+      list = filtered
         .filter(r => r.weeklyKey === wk && (r.weeklyWins || 0) > 0)
         .sort((a, b) => (b.weeklyWins || 0) - (a.weeklyWins || 0));
+    } else if (rankTab === 'prev') {
+      list = filtered
+        .filter(r => (r.prevWeekTotalWins || 0) > 0)
+        .sort((a, b) => (b.prevWeekTotalWins || 0) - (a.prevWeekTotalWins || 0));
     } else if (rankTab === 'hard') {
-      list = ranks
+      list = filtered
         .filter(r => (r.hardWins || 0) > 0)
         .sort((a, b) => (b.hardWins || 0) - (a.hardWins || 0));
     } else {
-      list = ranks.slice().sort((a, b) =>
+      list = filtered.slice().sort((a, b) =>
         ((b.totalWins || 0) - (a.totalWins || 0)) || ((a.totalLosses || 0) - (b.totalLosses || 0))
       );
     }
@@ -2236,10 +2270,13 @@ function ordinalSuffix(n) {
       const label = pos <= 3 ? ['👑','🥈','🥉'][pos - 1] : pos;
       const me = r.id === 'me' ? 'me' : '';
       const rightPrimary = rankTab === 'weekly' ? ((r.weeklyWins || 0) + 'W')
+                        : rankTab === 'prev'   ? ((r.prevWeekTotalWins || 0) + 'W')
                         : rankTab === 'hard'   ? ((r.hardWins || 0) + 'W')
                         : ((r.totalWins || 0) + 'W');
       const sub = rankTab === 'weekly'
         ? 'This Week · ' + (r.weeklyWins || 0) + 'W'
+        : rankTab === 'prev'
+          ? 'Last Week Total · ' + (r.prevWeekTotalWins || 0) + 'W'
         : rankTab === 'hard'
           ? 'Hard ' + (r.hardWins || 0) + 'W · Total ' + (r.totalWins || 0) + 'W'
           : (r.totalGames || 0) + 'Match ' + (r.totalWins || 0) + 'W ' + (r.totalLosses || 0) + 'L';
@@ -2448,18 +2485,39 @@ function ordinalSuffix(n) {
   // Daily bonus
   $('#daily-claim-btn').addEventListener('click', claimDaily);
 
-  // Profile edit
-  $('#btn-edit-name').addEventListener('click', () => {
-    const n = prompt('Enter your nickname (2-12ch)', profile.nickname);
-    if (n === null) return;
-    const v = String(n).trim();
-    if (v.length < 2 || v.length > 12) { toast('2-12characters'); return; }
-    profile.nickname = v;
-    persist();
-    renderProfile();
-    syncHome();
-    toast('Nickname changed');
-  });
+  // Profile edit — themed nickname dialog
+  function openNicknameDialog() {
+    const dlg = document.createElement('div');
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.9);display:flex;align-items:center;justify-content:center;z-index:10000;backdrop-filter:blur(6px);';
+    dlg.innerHTML =
+      '<div style="background:linear-gradient(160deg,#0b4f3a,#1fb37f);border-radius:20px;padding:24px;width:min(90vw,340px);box-shadow:0 30px 80px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);color:#fff;">'
+      + '  <div style="font-size:18px;font-weight:900;text-align:center;margin-bottom:14px;">Change Nickname</div>'
+      + '  <input id="fa-nk-input" maxlength="12" placeholder="2–12 characters" style="width:100%;padding:13px;border:none;border-radius:12px;background:rgba(255,255,255,.95);color:#0b4f3a;font-weight:900;font-size:16px;text-align:center;margin-bottom:14px;" />'
+      + '  <div style="display:flex;gap:8px;">'
+      + '    <button id="fa-nk-cancel" style="flex:1;padding:12px;border:none;border-radius:12px;background:rgba(255,255,255,.15);color:#fff;font-weight:800;cursor:pointer;">Cancel</button>'
+      + '    <button id="fa-nk-save"   style="flex:1;padding:12px;border:none;border-radius:12px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;cursor:pointer;">Save</button>'
+      + '  </div>'
+      + '</div>';
+    document.body.appendChild(dlg);
+    const inp = dlg.querySelector('#fa-nk-input');
+    inp.value = profile.nickname || '';
+    setTimeout(() => inp.focus(), 30);
+    dlg.querySelector('#fa-nk-cancel').addEventListener('click', () => dlg.remove());
+    const save = () => {
+      const v = String(inp.value || '').trim();
+      if (v.length < 2 || v.length > 12) { toast('2–12 characters'); return; }
+      profile.nickname = v;
+      persist();
+      renderProfile();
+      syncHome();
+      try { Online.pushLeader(); Online.registerPresence(); } catch {}
+      toast('Nickname changed');
+      dlg.remove();
+    };
+    dlg.querySelector('#fa-nk-save').addEventListener('click', save);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+  }
+  $('#btn-edit-name').addEventListener('click', openNicknameDialog);
 
   // Game actions
   $('#ga-home').addEventListener('click', () => {
@@ -2537,6 +2595,14 @@ function ordinalSuffix(n) {
     $$('#seg-vib button').forEach(b => b.classList.toggle('on', b === t));
     persist();
   });
+  $('#seg-lang').addEventListener('click', e => {
+    const t = e.target;
+    if (!t.dataset || !t.dataset.lang) return;
+    settings.language = t.dataset.lang;
+    $$('#seg-lang button').forEach(b => b.classList.toggle('on', b === t));
+    persist();
+    toast('Language: ' + t.dataset.lang.toUpperCase());
+  });
 
   // Reflect current settings in segments
   function reflectSettings() {
@@ -2594,7 +2660,7 @@ function ordinalSuffix(n) {
      compatible with the original hub across versions.
      ═════════════════════════════════════════════════════════════════════════ */
   const Online = (function() {
-    const LEADERS_PATH  = 'omokLeaders';
+    const LEADERS_PATH  = 'leaderboards/omok';
     const ROOMS_PATH    = 'omokRooms';
     const PRESENCE_PATH = 'omokPresence';
     let db = null;
@@ -2629,6 +2695,10 @@ function ordinalSuffix(n) {
             bestStreak: Number(v.bestStreak || 0),
             weeklyKey: v.weeklyKey || '',
             weeklyWins: Number(v.weeklyWins || 0),
+            prevWeekTotalWins: Number(v.prevWeekTotalWins || 0),
+            prevWeekTotalLosses: Number(v.prevWeekTotalLosses || 0),
+            prevWeekTotalGames: Number(v.prevWeekTotalGames || 0),
+            prevWeekKey: v.prevWeekKey || '',
             updatedAt: Number(v.updatedAt || 0),
           });
         });
@@ -2651,6 +2721,10 @@ function ordinalSuffix(n) {
           bestStreak: profile.bestStreak | 0,
           weeklyKey: profile.weeklyKey || '',
           weeklyWins: profile.weeklyWins | 0,
+          prevWeekTotalWins: profile.prevWeekTotalWins | 0,
+          prevWeekTotalLosses: profile.prevWeekTotalLosses | 0,
+          prevWeekTotalGames: profile.prevWeekTotalGames | 0,
+          prevWeekKey: profile.prevWeekKey || '',
           stars: profile.stars | 0,
           updatedAt: Date.now(),
         });
@@ -2751,6 +2825,7 @@ function ordinalSuffix(n) {
             hostName: v.hostName || 'Host',
             hostAvatar: v.hostAvatar || '🐻',
             wager: Number(v.wager || 0),
+            title: String(v.title || ''),
             targetId: v.targetId || '',
             targetName: v.targetName || '',
             createdAt: Number(v.createdAt || 0),
@@ -2761,7 +2836,7 @@ function ordinalSuffix(n) {
       } catch (e) { return []; }
     }
 
-    async function createRoom(wager, target) {
+    async function createRoom(wager, target, title) {
       const d = ready();
       if (!d) { toast('Online unavailable'); return null; }
       if ((profile.stars | 0) < (wager | 0)) { toast('Not enough stars'); return null; }
@@ -2778,6 +2853,7 @@ function ordinalSuffix(n) {
           guestName: '',
           guestAvatar: '',
           wager: wager | 0,
+          title: String(title || '').slice(0, 24),
           targetId: (target && target.id) || '',
           targetName: (target && target.nickname) || '',
           board: new Array(BOARD_SIZE * BOARD_SIZE).fill(0),
@@ -2954,6 +3030,7 @@ function ordinalSuffix(n) {
       + '</div>'
       + '<div style="font-size:12px;color:rgba(255,255,255,.78);margin-bottom:14px;">Create a room with a star wager, join an open room, or challenge an online player.</div>'
       + '<div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#ffd56b;margin-bottom:8px;">Create Room</div>'
+      + '<input id="fa-lb-title" maxlength="24" placeholder="Room title (optional)" style="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);color:#fff;font-size:13px;margin-bottom:8px;outline:none;" />'
       + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:18px;">'
       + WAGER_OPTIONS.map(w =>
           '<button class="fa-lb-create" data-wager="' + w + '" style="padding:14px 6px;border:none;border-radius:14px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.25);">'
@@ -2977,8 +3054,10 @@ function ordinalSuffix(n) {
       btn.addEventListener('click', async () => {
         const w = Number(btn.dataset.wager || 0);
         if ((profile.stars | 0) < w) { toast('Not enough stars'); return; }
-        const code = await Online.createRoom(w);
-        if (code) openWaitingScreen(code, w);
+        const titleEl = panel.querySelector('#fa-lb-title');
+        const title = titleEl ? titleEl.value.trim() : '';
+        const code = await Online.createRoom(w, null, title);
+        if (code) openWaitingScreen(code, w, title);
       });
     });
     panel.querySelector('#fa-lb-refresh').addEventListener('click', refreshLobbyLists);
@@ -3000,8 +3079,8 @@ function ordinalSuffix(n) {
           '<div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:rgba(255,255,255,.08);margin-bottom:6px;">'
           + '  <div style="font-size:22px;">' + (r.hostAvatar || '🐻') + '</div>'
           + '  <div style="flex:1;min-width:0;">'
-          + '    <div style="font-weight:800;font-size:13px;">' + escapeHtml(r.hostName) + (r.targetId ? ' <span style="font-size:10px;color:#ffd56b;">(invite)</span>' : '') + '</div>'
-          + '    <div style="font-size:11px;color:rgba(255,255,255,.7);">⭐ ' + r.wager.toLocaleString() + ' wager</div>'
+          + '    <div style="font-weight:800;font-size:13px;">' + escapeHtml(r.title || r.hostName) + (r.targetId ? ' <span style="font-size:10px;color:#ffd56b;">(invite)</span>' : '') + '</div>'
+          + '    <div style="font-size:11px;color:rgba(255,255,255,.7);">' + escapeHtml(r.hostName) + ' · ⭐ ' + r.wager.toLocaleString() + '</div>'
           + '  </div>'
           + '  <button class="fa-lb-join" data-code="' + r.code + '" style="padding:8px 14px;border:none;border-radius:10px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;cursor:pointer;font-size:12px;">Join</button>'
           + '</div>'
@@ -3064,7 +3143,8 @@ function ordinalSuffix(n) {
     });
   }
 
-  function openWaitingScreen(code, wager, target) {
+  function openWaitingScreen(code, wager, target, title) {
+    if (typeof target === 'string') { title = target; target = null; }
     closeFriendOnlinePanel();
     const wait = document.createElement('div');
     _lobbyPanel = wait;
@@ -3072,7 +3152,7 @@ function ordinalSuffix(n) {
     wait.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.92);display:flex;align-items:center;justify-content:center;z-index:9999;backdrop-filter:blur(10px);';
     wait.innerHTML =
       '<div style="background:linear-gradient(160deg,#0b4f3a,#1fb37f);border-radius:24px;padding:32px 26px;width:min(92vw,380px);box-shadow:0 30px 80px rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;text-align:center;">'
-      + '  <div style="font-size:22px;font-weight:900;margin-bottom:6px;">Waiting for Opponent</div>'
+      + '  <div style="font-size:22px;font-weight:900;margin-bottom:6px;">' + escapeHtml(title || 'Waiting for Opponent') + '</div>'
       + '  <div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:20px;">' + (target ? ('Challenge sent to <b>' + escapeHtml(target.nickname) + '</b>') : 'Your room is now visible to other players') + '</div>'
       + '  <div style="display:inline-block;padding:18px 28px;border-radius:18px;background:rgba(0,0,0,.28);margin-bottom:16px;">'
       + '    <div style="font-size:11px;color:#ffd56b;font-weight:800;letter-spacing:.12em;">ROOM CODE</div>'
@@ -3640,86 +3720,86 @@ function ordinalSuffix(n) {
   ];
 
   A.COSMETICS = [
-    { id: 3000+0, type: "frame", name: "Frame 1", price: 100 },
-    { id: 3000+1, type: "banner", name: "Banner 2", price: 200 },
-    { id: 3000+2, type: "emote", name: "Emote 3", price: 300 },
-    { id: 3000+3, type: "title", name: "Title 4", price: 400 },
-    { id: 3000+4, type: "effect", name: "Effect 5", price: 500 },
-    { id: 3000+5, type: "trail", name: "Trail 6", price: 600 },
-    { id: 3000+6, type: "victory", name: "Victory 7", price: 700 },
-    { id: 3000+7, type: "defeat", name: "Defeat 8", price: 800 },
-    { id: 3000+8, type: "idle", name: "Idle 9", price: 900 },
-    { id: 3000+9, type: "overlay", name: "Overlay 10", price: 1000 },
-    { id: 3000+10, type: "frame", name: "Frame 11", price: 1100 },
-    { id: 3000+11, type: "banner", name: "Banner 12", price: 1200 },
-    { id: 3000+12, type: "emote", name: "Emote 13", price: 1300 },
-    { id: 3000+13, type: "title", name: "Title 14", price: 1400 },
-    { id: 3000+14, type: "effect", name: "Effect 15", price: 1500 },
-    { id: 3000+15, type: "trail", name: "Trail 16", price: 1600 },
-    { id: 3000+16, type: "victory", name: "Victory 17", price: 1700 },
-    { id: 3000+17, type: "defeat", name: "Defeat 18", price: 1800 },
-    { id: 3000+18, type: "idle", name: "Idle 19", price: 1900 },
-    { id: 3000+19, type: "overlay", name: "Overlay 20", price: 2000 },
-    { id: 3000+20, type: "frame", name: "Frame 21", price: 2100 },
-    { id: 3000+21, type: "banner", name: "Banner 22", price: 2200 },
-    { id: 3000+22, type: "emote", name: "Emote 23", price: 2300 },
-    { id: 3000+23, type: "title", name: "Title 24", price: 2400 },
-    { id: 3000+24, type: "effect", name: "Effect 25", price: 2500 },
-    { id: 3000+25, type: "trail", name: "Trail 26", price: 2600 },
-    { id: 3000+26, type: "victory", name: "Victory 27", price: 2700 },
-    { id: 3000+27, type: "defeat", name: "Defeat 28", price: 2800 },
-    { id: 3000+28, type: "idle", name: "Idle 29", price: 2900 },
-    { id: 3000+29, type: "overlay", name: "Overlay 30", price: 3000 },
-    { id: 3000+30, type: "frame", name: "Frame 31", price: 3100 },
-    { id: 3000+31, type: "banner", name: "Banner 32", price: 3200 },
-    { id: 3000+32, type: "emote", name: "Emote 33", price: 3300 },
-    { id: 3000+33, type: "title", name: "Title 34", price: 3400 },
-    { id: 3000+34, type: "effect", name: "Effect 35", price: 3500 },
-    { id: 3000+35, type: "trail", name: "Trail 36", price: 3600 },
-    { id: 3000+36, type: "victory", name: "Victory 37", price: 3700 },
-    { id: 3000+37, type: "defeat", name: "Defeat 38", price: 3800 },
-    { id: 3000+38, type: "idle", name: "Idle 39", price: 3900 },
-    { id: 3000+39, type: "overlay", name: "Overlay 40", price: 4000 },
-    { id: 3000+40, type: "frame", name: "Frame 41", price: 4100 },
-    { id: 3000+41, type: "banner", name: "Banner 42", price: 4200 },
-    { id: 3000+42, type: "emote", name: "Emote 43", price: 4300 },
-    { id: 3000+43, type: "title", name: "Title 44", price: 4400 },
-    { id: 3000+44, type: "effect", name: "Effect 45", price: 4500 },
-    { id: 3000+45, type: "trail", name: "Trail 46", price: 4600 },
-    { id: 3000+46, type: "victory", name: "Victory 47", price: 4700 },
-    { id: 3000+47, type: "defeat", name: "Defeat 48", price: 4800 },
-    { id: 3000+48, type: "idle", name: "Idle 49", price: 4900 },
-    { id: 3000+49, type: "overlay", name: "Overlay 50", price: 5000 },
-    { id: 3000+50, type: "frame", name: "Frame 51", price: 5100 },
-    { id: 3000+51, type: "banner", name: "Banner 52", price: 5200 },
-    { id: 3000+52, type: "emote", name: "Emote 53", price: 5300 },
-    { id: 3000+53, type: "title", name: "Title 54", price: 5400 },
-    { id: 3000+54, type: "effect", name: "Effect 55", price: 5500 },
-    { id: 3000+55, type: "trail", name: "Trail 56", price: 5600 },
-    { id: 3000+56, type: "victory", name: "Victory 57", price: 5700 },
-    { id: 3000+57, type: "defeat", name: "Defeat 58", price: 5800 },
-    { id: 3000+58, type: "idle", name: "Idle 59", price: 5900 },
-    { id: 3000+59, type: "overlay", name: "Overlay 60", price: 6000 },
-    { id: 3000+60, type: "frame", name: "Frame 61", price: 6100 },
-    { id: 3000+61, type: "banner", name: "Banner 62", price: 6200 },
-    { id: 3000+62, type: "emote", name: "Emote 63", price: 6300 },
-    { id: 3000+63, type: "title", name: "Title 64", price: 6400 },
-    { id: 3000+64, type: "effect", name: "Effect 65", price: 6500 },
-    { id: 3000+65, type: "trail", name: "Trail 66", price: 6600 },
-    { id: 3000+66, type: "victory", name: "Victory 67", price: 6700 },
-    { id: 3000+67, type: "defeat", name: "Defeat 68", price: 6800 },
-    { id: 3000+68, type: "idle", name: "Idle 69", price: 6900 },
-    { id: 3000+69, type: "overlay", name: "Overlay 70", price: 7000 },
-    { id: 3000+70, type: "frame", name: "Frame 71", price: 7100 },
-    { id: 3000+71, type: "banner", name: "Banner 72", price: 7200 },
-    { id: 3000+72, type: "emote", name: "Emote 73", price: 7300 },
-    { id: 3000+73, type: "title", name: "Title 74", price: 7400 },
-    { id: 3000+74, type: "effect", name: "Effect 75", price: 7500 },
-    { id: 3000+75, type: "trail", name: "Trail 76", price: 7600 },
-    { id: 3000+76, type: "victory", name: "Victory 77", price: 7700 },
-    { id: 3000+77, type: "defeat", name: "Defeat 78", price: 7800 },
-    { id: 3000+78, type: "idle", name: "Idle 79", price: 7900 },
-    { id: 3000+79, type: "overlay", name: "Overlay 80", price: 8000 },
+    { id: 3000+0, type: "frame", name: "Frame 1", price: 3000 },
+    { id: 3000+1, type: "banner", name: "Banner 2", price: 6000 },
+    { id: 3000+2, type: "emote", name: "Emote 3", price: 9000 },
+    { id: 3000+3, type: "title", name: "Title 4", price: 12000 },
+    { id: 3000+4, type: "effect", name: "Effect 5", price: 15000 },
+    { id: 3000+5, type: "trail", name: "Trail 6", price: 18000 },
+    { id: 3000+6, type: "victory", name: "Victory 7", price: 21000 },
+    { id: 3000+7, type: "defeat", name: "Defeat 8", price: 24000 },
+    { id: 3000+8, type: "idle", name: "Idle 9", price: 27000 },
+    { id: 3000+9, type: "overlay", name: "Overlay 10", price: 30000 },
+    { id: 3000+10, type: "frame", name: "Frame 11", price: 33000 },
+    { id: 3000+11, type: "banner", name: "Banner 12", price: 36000 },
+    { id: 3000+12, type: "emote", name: "Emote 13", price: 39000 },
+    { id: 3000+13, type: "title", name: "Title 14", price: 42000 },
+    { id: 3000+14, type: "effect", name: "Effect 15", price: 45000 },
+    { id: 3000+15, type: "trail", name: "Trail 16", price: 48000 },
+    { id: 3000+16, type: "victory", name: "Victory 17", price: 51000 },
+    { id: 3000+17, type: "defeat", name: "Defeat 18", price: 54000 },
+    { id: 3000+18, type: "idle", name: "Idle 19", price: 57000 },
+    { id: 3000+19, type: "overlay", name: "Overlay 20", price: 60000 },
+    { id: 3000+20, type: "frame", name: "Frame 21", price: 63000 },
+    { id: 3000+21, type: "banner", name: "Banner 22", price: 66000 },
+    { id: 3000+22, type: "emote", name: "Emote 23", price: 69000 },
+    { id: 3000+23, type: "title", name: "Title 24", price: 72000 },
+    { id: 3000+24, type: "effect", name: "Effect 25", price: 75000 },
+    { id: 3000+25, type: "trail", name: "Trail 26", price: 78000 },
+    { id: 3000+26, type: "victory", name: "Victory 27", price: 81000 },
+    { id: 3000+27, type: "defeat", name: "Defeat 28", price: 84000 },
+    { id: 3000+28, type: "idle", name: "Idle 29", price: 87000 },
+    { id: 3000+29, type: "overlay", name: "Overlay 30", price: 90000 },
+    { id: 3000+30, type: "frame", name: "Frame 31", price: 93000 },
+    { id: 3000+31, type: "banner", name: "Banner 32", price: 96000 },
+    { id: 3000+32, type: "emote", name: "Emote 33", price: 99000 },
+    { id: 3000+33, type: "title", name: "Title 34", price: 102000 },
+    { id: 3000+34, type: "effect", name: "Effect 35", price: 105000 },
+    { id: 3000+35, type: "trail", name: "Trail 36", price: 108000 },
+    { id: 3000+36, type: "victory", name: "Victory 37", price: 111000 },
+    { id: 3000+37, type: "defeat", name: "Defeat 38", price: 114000 },
+    { id: 3000+38, type: "idle", name: "Idle 39", price: 117000 },
+    { id: 3000+39, type: "overlay", name: "Overlay 40", price: 120000 },
+    { id: 3000+40, type: "frame", name: "Frame 41", price: 123000 },
+    { id: 3000+41, type: "banner", name: "Banner 42", price: 126000 },
+    { id: 3000+42, type: "emote", name: "Emote 43", price: 129000 },
+    { id: 3000+43, type: "title", name: "Title 44", price: 132000 },
+    { id: 3000+44, type: "effect", name: "Effect 45", price: 135000 },
+    { id: 3000+45, type: "trail", name: "Trail 46", price: 138000 },
+    { id: 3000+46, type: "victory", name: "Victory 47", price: 141000 },
+    { id: 3000+47, type: "defeat", name: "Defeat 48", price: 144000 },
+    { id: 3000+48, type: "idle", name: "Idle 49", price: 147000 },
+    { id: 3000+49, type: "overlay", name: "Overlay 50", price: 150000 },
+    { id: 3000+50, type: "frame", name: "Frame 51", price: 153000 },
+    { id: 3000+51, type: "banner", name: "Banner 52", price: 156000 },
+    { id: 3000+52, type: "emote", name: "Emote 53", price: 159000 },
+    { id: 3000+53, type: "title", name: "Title 54", price: 162000 },
+    { id: 3000+54, type: "effect", name: "Effect 55", price: 165000 },
+    { id: 3000+55, type: "trail", name: "Trail 56", price: 168000 },
+    { id: 3000+56, type: "victory", name: "Victory 57", price: 171000 },
+    { id: 3000+57, type: "defeat", name: "Defeat 58", price: 174000 },
+    { id: 3000+58, type: "idle", name: "Idle 59", price: 177000 },
+    { id: 3000+59, type: "overlay", name: "Overlay 60", price: 180000 },
+    { id: 3000+60, type: "frame", name: "Frame 61", price: 183000 },
+    { id: 3000+61, type: "banner", name: "Banner 62", price: 186000 },
+    { id: 3000+62, type: "emote", name: "Emote 63", price: 189000 },
+    { id: 3000+63, type: "title", name: "Title 64", price: 192000 },
+    { id: 3000+64, type: "effect", name: "Effect 65", price: 195000 },
+    { id: 3000+65, type: "trail", name: "Trail 66", price: 198000 },
+    { id: 3000+66, type: "victory", name: "Victory 67", price: 201000 },
+    { id: 3000+67, type: "defeat", name: "Defeat 68", price: 204000 },
+    { id: 3000+68, type: "idle", name: "Idle 69", price: 207000 },
+    { id: 3000+69, type: "overlay", name: "Overlay 70", price: 210000 },
+    { id: 3000+70, type: "frame", name: "Frame 71", price: 213000 },
+    { id: 3000+71, type: "banner", name: "Banner 72", price: 216000 },
+    { id: 3000+72, type: "emote", name: "Emote 73", price: 219000 },
+    { id: 3000+73, type: "title", name: "Title 74", price: 222000 },
+    { id: 3000+74, type: "effect", name: "Effect 75", price: 225000 },
+    { id: 3000+75, type: "trail", name: "Trail 76", price: 228000 },
+    { id: 3000+76, type: "victory", name: "Victory 77", price: 231000 },
+    { id: 3000+77, type: "defeat", name: "Defeat 78", price: 234000 },
+    { id: 3000+78, type: "idle", name: "Idle 79", price: 237000 },
+    { id: 3000+79, type: "overlay", name: "Overlay 80", price: 240000 },
   ];
 
   A.QUOTES = [
