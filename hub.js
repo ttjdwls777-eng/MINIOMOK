@@ -183,7 +183,11 @@ function ordinalSuffix(n) {
     box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.1);
   }
   @media (max-width:520px){ .stage{ width:100vw; height:100svh; max-height:100svh; border-radius:0; } }
-  .footer-nav{ margin-bottom:calc(env(safe-area-inset-bottom,0px) + 6px); }
+  .footer-nav{ margin-bottom:calc(env(safe-area-inset-bottom,0px) + 18px); padding-bottom:4px; }
+  @media (max-width:520px){
+    .footer-nav{ margin-bottom:calc(env(safe-area-inset-bottom,0px) + 28px); }
+    .screen{ padding-bottom:calc(36px + env(safe-area-inset-bottom,0px)) !important; }
+  }
   .stage::before{
     content:"";position:absolute;inset:0;pointer-events:none;
     background:
@@ -1051,6 +1055,7 @@ function ordinalSuffix(n) {
         <button class="tab" data-tab="prev">Last Week</button>
         <button class="tab" data-tab="hard">Hard King</button>
       </div>
+      <div id="rank-reset-info" style="text-align:center;font-size:11px;color:rgba(255,255,255,.78);margin:4px 0 6px;font-weight:700"></div>
       <div class="rank-list" id="rank-list"></div>
     </section>
 
@@ -1352,6 +1357,70 @@ function ordinalSuffix(n) {
     toast._t = setTimeout(() => el.classList.remove('show'), ms);
   };
 
+  function popupAlert(title, message) {
+    const existing = document.getElementById('fa-popup-alert');
+    if (existing) existing.remove();
+    const dlg = document.createElement('div');
+    dlg.id = 'fa-popup-alert';
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.88);display:flex;align-items:center;justify-content:center;z-index:99999;backdrop-filter:blur(10px);animation:kk-fade .25s ease;';
+    dlg.innerHTML =
+      '<div style="background:linear-gradient(160deg,#1a1f3a,#0b4f3a);border-radius:24px;padding:28px 24px;width:min(88vw,340px);box-shadow:0 30px 80px rgba(0,0,0,.7);border:1px solid rgba(255,214,107,.4);color:#fff;text-align:center;">'
+      + '  <div style="font-size:40px;margin-bottom:8px;">⚠️</div>'
+      + '  <div style="font-size:19px;font-weight:900;margin-bottom:8px;color:#ffd56b;">' + escapeHtml(title || 'Notice') + '</div>'
+      + '  <div style="font-size:13.5px;color:rgba(255,255,255,.9);margin-bottom:20px;line-height:1.5;">' + escapeHtml(message || '') + '</div>'
+      + '  <button id="fa-popup-ok" style="width:100%;padding:14px;border:none;border-radius:14px;background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;font-size:15px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3);">OK</button>'
+      + '</div>';
+    document.body.appendChild(dlg);
+    const close = () => { try { dlg.remove(); } catch {} };
+    dlg.querySelector('#fa-popup-ok').addEventListener('click', close);
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+    try { beep(440, 0.12, 'square', 0.22); } catch {}
+  }
+
+  function speakWord(word) {
+    try {
+      if (window.speechSynthesis) {
+        const u = new SpeechSynthesisUtterance(word);
+        u.rate = 1.05; u.pitch = 1.0; u.volume = 1.0; u.lang = 'en-US';
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      }
+    } catch {}
+  }
+
+  function runStartCountdown(onDone) {
+    const overlay = document.createElement('div');
+    overlay.id = 'fa-countdown';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(3,20,14,.55);display:flex;align-items:center;justify-content:center;z-index:9998;backdrop-filter:blur(4px);pointer-events:none;';
+    overlay.innerHTML = '<div id="fa-cd-num" style="font-size:140px;font-weight:900;color:#ffd56b;text-shadow:0 8px 30px rgba(0,0,0,.6),0 0 40px rgba(255,214,107,.5);animation:kk-pop .35s ease;"></div>';
+    document.body.appendChild(overlay);
+    const numEl = overlay.querySelector('#fa-cd-num');
+    const seq = [
+      { t: 'THREE', d: '3', f: 523 },
+      { t: 'TWO',   d: '2', f: 659 },
+      { t: 'ONE',   d: '1', f: 784 },
+      { t: 'GAME START', d: 'GO!', f: 1046 }
+    ];
+    let i = 0;
+    const step = () => {
+      if (i >= seq.length) {
+        try { overlay.remove(); } catch {}
+        if (typeof onDone === 'function') onDone();
+        return;
+      }
+      const s = seq[i++];
+      numEl.textContent = s.d;
+      numEl.style.animation = 'none';
+      void numEl.offsetWidth;
+      numEl.style.animation = 'kk-pop .35s ease';
+      if (s.d === 'GO!') { numEl.style.fontSize = '72px'; numEl.style.color = '#3ddc98'; }
+      try { beep(s.f, 0.18, 'square', 0.28); } catch {}
+      speakWord(s.t);
+      setTimeout(step, 900);
+    };
+    step();
+  }
+
   /* ═════════════════════════════════════════════════════════════════════════
      PERSISTENCE
      ═════════════════════════════════════════════════════════════════════════ */
@@ -1364,6 +1433,21 @@ function ordinalSuffix(n) {
      ═════════════════════════════════════════════════════════════════════════ */
   // Weekly season rolls over every Saturday at 12:00 local time.
   // Each week starts Sat 12:00 and ends the following Sat 12:00.
+  const nextWeeklyReset = (d = new Date()) => {
+    // Next Saturday 12:00:00 local time (weekly anchor)
+    const t = new Date(d.getTime());
+    const day = t.getDay(); // 0=Sun..6=Sat
+    const next = new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12, 0, 0, 0);
+    let add = (6 - day + 7) % 7;
+    if (add === 0 && t.getTime() >= next.getTime()) add = 7;
+    next.setDate(next.getDate() + add);
+    return next;
+  };
+  const formatResetMsg = (d = new Date()) => {
+    const n = nextWeeklyReset(d);
+    const pad = x => String(x).padStart(2, '0');
+    return 'Weekly reset · ' + (n.getMonth() + 1) + '/' + n.getDate() + ' (Sat) ' + pad(n.getHours()) + ':' + pad(n.getMinutes());
+  };
   const weekKey = (d = new Date()) => {
     const t = new Date(d.getTime());
     // Shift time back so that Sat 12:00 becomes the start-of-week anchor.
@@ -1459,17 +1543,28 @@ function ordinalSuffix(n) {
   let shopState = Object.assign(defaultShop(), storeLoad(SHOP_KEY) || {});
   let dailyState = storeLoad(DAILY_KEY) || { lastClaim: null };
 
-  // rollover weekly
-  if (profile.weeklyKey !== weekKey()) {
-    // snapshot cumulative totals from the week we just finished
-    profile.prevWeekTotalWins   = profile.totalWins   | 0;
-    profile.prevWeekTotalLosses = profile.totalLosses | 0;
-    profile.prevWeekTotalGames  = profile.totalGames  | 0;
-    profile.prevWeekKey = profile.weeklyKey || '';
-    profile.weeklyKey = weekKey();
-    profile.weeklyWins = 0;
-    profile.weeklyGames = 0;
+  function checkWeeklyRollover() {
+    if (profile.weeklyKey !== weekKey()) {
+      profile.prevWeekTotalWins   = profile.totalWins   | 0;
+      profile.prevWeekTotalLosses = profile.totalLosses | 0;
+      profile.prevWeekTotalGames  = profile.totalGames  | 0;
+      profile.prevWeekKey = profile.weeklyKey || '';
+      profile.weeklyKey = weekKey();
+      profile.weeklyWins = 0;
+      profile.weeklyGames = 0;
+      try { persist(); } catch {}
+      return true;
+    }
+    return false;
   }
+  checkWeeklyRollover();
+  setInterval(() => {
+    if (checkWeeklyRollover()) {
+      try { renderRanks(); syncHome(); } catch {}
+    }
+    const info = document.getElementById('rank-reset-info');
+    if (info) info.textContent = formatResetMsg();
+  }, 30000);
   if (typeof profile.prevWeekTotalWins !== 'number') profile.prevWeekTotalWins = 0;
   // rollover daily missions
   if (missionState.dayKey !== dayKey()) {
@@ -1635,22 +1730,30 @@ function ordinalSuffix(n) {
     game.board = createBoard();
     game.current = HUMAN;
     game.history = [];
-    game.gameOver = false;
+    game.gameOver = true; // block input during countdown
     game.hintCell = null;
     game.hintUsed = 0;
     game.pendingCell = null;
     try { togglePlaceFab(false); } catch {}
     game.winLine = null;
-    game.moveDeadline = Date.now() + 60000;
-    game.startedAt = Date.now();
     if (game.timerHandle) clearInterval(game.timerHandle);
-    game.timerHandle = setInterval(updateTimer, 500);
     updateTurnDisplay();
     updateMatchInfo();
     draw();
-    if (game.mode === MODE_AI && game.current === AI_PLAYER) {
-      setTimeout(aiMove, 420);
-    }
+    runStartCountdown(() => {
+      game.gameOver = false;
+      game._timedOut = false;
+      game.moveDeadline = Date.now() + 60000;
+      game.startedAt = Date.now();
+      game._lastTick = -1;
+      game.timerHandle = setInterval(updateTimer, 500);
+      updateTurnDisplay();
+      updateMatchInfo();
+      draw();
+      if (game.mode === MODE_AI && game.current === AI_PLAYER) {
+        setTimeout(aiMove, 420);
+      }
+    });
   }
 
   function updateTimer() {
@@ -2527,8 +2630,11 @@ function ordinalSuffix(n) {
 
   let rankTab = 'total';
   function renderRanks() {
+    try { checkWeeklyRollover(); } catch {}
     const ranks = seedBotsIfNeeded();
     const wk = weekKey();
+    const info = $('#rank-reset-info');
+    if (info) info.textContent = formatResetMsg();
     let list;
     // Keep only English/ASCII nicknames for display
     const englishOnly = r => {
@@ -3183,7 +3289,7 @@ function ordinalSuffix(n) {
     async function createRoom(wager, target, title) {
       const d = ready();
       if (!d) { toast('Online unavailable'); return null; }
-      if ((profile.stars | 0) < (wager | 0)) { toast('Not enough stars'); return null; }
+      if ((profile.stars | 0) < (wager | 0)) { popupAlert('Not enough stars', 'You need ' + (wager|0).toLocaleString() + '⭐ to create this room. You have ' + (profile.stars|0).toLocaleString() + '⭐.'); return null; }
       const code = genCode();
       const avatarItem = SHOP_ITEMS.find(i => i.id === (settings.equippedAvatar || 'avatar_bear'));
       const hostAvatar = (avatarItem && avatarItem.emoji) || '🐻';
@@ -3226,7 +3332,7 @@ function ordinalSuffix(n) {
         if (v.status !== 'waiting') { toast('Room unavailable'); return false; }
         if (v.guestId && v.guestId !== profile.id) { toast('Room full'); return false; }
         const wager = Number(v.wager || 0);
-        if ((profile.stars | 0) < wager) { toast('Not enough stars'); return false; }
+        if ((profile.stars | 0) < wager) { popupAlert('Not enough stars', 'You need ' + wager.toLocaleString() + '⭐ to join this room. You currently have ' + (profile.stars|0).toLocaleString() + '⭐.'); return false; }
         if (v.targetId && v.targetId !== profile.id) { toast('Private room'); return false; }
         const avatarItem = SHOP_ITEMS.find(i => i.id === (settings.equippedAvatar || 'avatar_bear'));
         await ref.update({
@@ -3510,7 +3616,7 @@ function ordinalSuffix(n) {
     panel.querySelectorAll('.fa-lb-create').forEach(btn => {
       btn.addEventListener('click', async () => {
         const w = Number(btn.dataset.wager || 0);
-        if ((profile.stars | 0) < w) { toast('Not enough stars'); return; }
+        if ((profile.stars | 0) < w) { popupAlert('Not enough stars', 'You need ' + w.toLocaleString() + '⭐ to create this room. You currently have ' + (profile.stars|0).toLocaleString() + '⭐.'); return; }
         const titleEl = panel.querySelector('#fa-lb-title');
         const title = titleEl ? titleEl.value.trim() : '';
         const code = await Online.createRoom(w, null, title);
