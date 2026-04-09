@@ -3701,7 +3701,7 @@ function ordinalSuffix(n) {
     dlg.querySelector('#fa-ch-cancel').addEventListener('click', () => dlg.remove());
     dlg.querySelector('#fa-ch-send').addEventListener('click', async () => {
       const w = Math.max(1, Number(dlg.querySelector('#fa-ch-wager').value || 0));
-      if ((profile.stars | 0) < w) { toast('Not enough stars'); return; }
+      if ((profile.stars | 0) < w) { dlg.remove(); popupAlert('Not enough stars', 'You need ' + w.toLocaleString() + '⭐ to challenge this player. You currently have ' + (profile.stars|0).toLocaleString() + '⭐.'); return; }
       dlg.remove();
       const code = await Online.createRoom(w, target);
       if (code) openWaitingScreen(code, w, target);
