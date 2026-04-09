@@ -995,7 +995,8 @@ function ordinalSuffix(n) {
     <section class="screen" id="sc-profile">
       <div class="topbar">
         <button class="icon-btn" data-back>←</button>
-        <div class="brand-name" style="text-align:center;flex:1">Profile</div>
+        <div class="brand-name" style="text-align:center;flex:1" id="prof-title">Profile</div>
+        <button class="icon-btn" id="btn-prof-settings" title="Settings">⚙️</button>
         <button class="icon-btn" id="btn-edit-name" title="Change nickname">✏️</button>
       </div>
       <div class="prof-head">
@@ -1194,9 +1195,10 @@ function ordinalSuffix(n) {
       </div>
       <div class="board-wrap"><canvas id="board" width="900" height="900"></canvas></div>
       <div class="game-actions">
-        <button class="ga" id="ga-undo"><span class="i">↩️</span>Undo</button>
-        <button class="ga" id="ga-hint"><span class="i">💡</span>Hint</button>
-        <button class="ga" id="ga-restart"><span class="i">🔄</span>Retry</button>
+        <button class="ga" id="ga-place" style="background:linear-gradient(135deg,#ffd56b,#ff9e3c);color:#3a1a00;font-weight:900;"><span class="i">✅</span><span data-i18n="place">Place</span></button>
+        <button class="ga" id="ga-undo"><span class="i">↩️</span><span data-i18n="undo">Undo</span></button>
+        <button class="ga" id="ga-hint"><span class="i">💡</span><span data-i18n="hint">Hint</span></button>
+        <button class="ga" id="ga-restart"><span class="i">🔄</span><span data-i18n="retry">Retry</span></button>
         <button class="ga" id="ga-settings"><span class="i">⚙️</span>Settings</button>
         <button class="ga" id="ga-home"><span class="i">🏠</span>Home</button>
       </div>
@@ -1244,6 +1246,61 @@ function ordinalSuffix(n) {
     if (el) el.classList.add('active');
     window.scrollTo(0, 0);
   };
+  // Simple modal confirm wrapping #modal-confirm
+  function openConfirm(title, desc, onOk) {
+    const m = $('#modal-confirm');
+    if (!m) { if (window.confirm(title + '\n' + desc)) onOk && onOk(); return; }
+    $('#mc-title').textContent = title;
+    $('#mc-desc').textContent = desc;
+    m.classList.add('active');
+    const ok = $('#mc-ok'), cancel = $('#mc-cancel');
+    const cleanup = () => {
+      m.classList.remove('active');
+      ok.removeEventListener('click', okH);
+      cancel.removeEventListener('click', caH);
+    };
+    const okH = () => { cleanup(); try { onOk && onOk(); } catch {} };
+    const caH = () => { cleanup(); };
+    ok.addEventListener('click', okH);
+    cancel.addEventListener('click', caH);
+  }
+
+  // i18n translation map
+  const I18N = {
+    en: { place:'Place', undo:'Undo', hint:'Hint', retry:'Retry', settings:'Settings', home:'Home',
+          concede_title:'Resign?', concede_desc:'Leaving now will count as a loss.',
+          profile:'Profile', rank:'Rank', shop:'Shop', mission:'Mission', how:'How to Play',
+          ai_easy:'Easy', ai_normal:'Normal', ai_hard:'Hard', friend:'Friend', play_ai:'Play vs AI',
+          total_rank:'Total Rank', weekly_top:'Weekly TOP', last_week:'Last Week', hard_king:'Hard King' },
+    ko: { place:'착수', undo:'무르기', hint:'힌트', retry:'다시', settings:'설정', home:'홈',
+          concede_title:'기권하시겠습니까?', concede_desc:'지금 나가면 패배로 기록됩니다.',
+          profile:'프로필', rank:'랭킹', shop:'상점', mission:'미션', how:'플레이 방법',
+          ai_easy:'쉬움', ai_normal:'보통', ai_hard:'어려움', friend:'친구', play_ai:'AI 대전',
+          total_rank:'누적 랭킹', weekly_top:'주간 TOP', last_week:'지난 주', hard_king:'하드 킹' },
+    ja: { place:'着手', undo:'待った', hint:'ヒント', retry:'再戦', settings:'設定', home:'ホーム',
+          concede_title:'投了しますか?', concede_desc:'退出すると敗北として記録されます。',
+          profile:'プロフィール', rank:'ランキング', shop:'ショップ', mission:'ミッション', how:'遊び方',
+          ai_easy:'やさしい', ai_normal:'ふつう', ai_hard:'むずかしい', friend:'フレンド', play_ai:'AI対戦',
+          total_rank:'累計ランキング', weekly_top:'週間TOP', last_week:'先週', hard_king:'ハード王' },
+    zh: { place:'落子', undo:'悔棋', hint:'提示', retry:'重来', settings:'设置', home:'主页',
+          concede_title:'要投降吗?', concede_desc:'现在退出将记为失败。',
+          profile:'个人资料', rank:'排行榜', shop:'商店', mission:'任务', how:'玩法',
+          ai_easy:'简单', ai_normal:'普通', ai_hard:'困难', friend:'好友', play_ai:'对战AI',
+          total_rank:'累计排行', weekly_top:'周TOP', last_week:'上周', hard_king:'困难王' },
+  };
+  function tr(key) {
+    const lang = (settings && settings.language) || 'en';
+    const table = I18N[lang] || I18N.en;
+    return table[key] || I18N.en[key] || key;
+  }
+  function applyI18n() {
+    try {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const k = el.getAttribute('data-i18n'); if (k) el.textContent = tr(k);
+      });
+    } catch {}
+  }
+
   const toast = (msg, ms = 1800) => {
     const el = $('#toast');
     el.textContent = msg;
@@ -1281,11 +1338,15 @@ function ordinalSuffix(n) {
   /* ═════════════════════════════════════════════════════════════════════════
      LEVEL SYSTEM
      ═════════════════════════════════════════════════════════════════════════ */
-  function levelFromXp(xp) {
-    let lv = 1, need = 100, left = Number(xp) || 0;
-    while (left >= need) { left -= need; lv++; need = Math.floor(need * 1.25); }
-    return { lv, cur: left, need };
+  // Level derived from AI wins: 10 wins = +1 level. Capped at 100.
+  function levelFromXp(_xp) {
+    const wins = (profile && (profile.aiWins | 0)) || 0;
+    const lv = Math.min(100, Math.floor(wins / 10) + 1);
+    const cur = wins - (lv - 1) * 10;
+    const need = 10;
+    return { lv, cur, need };
   }
+  function aiWinsFor(p) { return (p && (p.aiWins | 0)) || 0; }
 
   /* ═════════════════════════════════════════════════════════════════════════
      PROFILE & STATE
@@ -1339,6 +1400,11 @@ function ordinalSuffix(n) {
   if (!profile.id) profile.id = genUserId();
   // Bootstrap: every connected user starts with at least 10,000 stars
   if ((profile.stars | 0) < 10000) profile.stars = 10000;
+  // Migrate AI wins - for existing players, seed from historical wins (easy+normal+hard)
+  if (typeof profile.aiWins !== 'number') {
+    profile.aiWins = ((profile.easyWins | 0) + (profile.normalWins | 0) + (profile.hardWins | 0));
+    if (!profile.aiWins && profile.totalWins) profile.aiWins = profile.totalWins | 0;
+  }
   let settings = Object.assign(defaultSettings(), storeLoad(SETTINGS_KEY) || {});
   let history  = storeLoad(HISTORY_KEY) || [];
   let missionState = storeLoad(MISSIONS_KEY) || { dayKey: dayKey(), missions: {}, claimed: {} };
@@ -1523,6 +1589,7 @@ function ordinalSuffix(n) {
     game.history = [];
     game.gameOver = false;
     game.hintCell = null;
+    game.pendingCell = null;
     game.winLine = null;
     game.startedAt = Date.now();
     if (game.timerHandle) clearInterval(game.timerHandle);
@@ -1668,6 +1735,18 @@ function ordinalSuffix(n) {
     }
 
     // hint
+    if (game.pendingCell) {
+      const p = game.pendingCell;
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      drawStone(p.x, p.y, game.current === HUMAN ? '#0b0b0f' : '#f7f8fb');
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(255,213,107,.95)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(c + p.x * c, c + p.y * c, c * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (game.hintCell) {
       ctx.strokeStyle = 'rgba(61,220,152,.95)';
       ctx.lineWidth = 4;
@@ -1735,9 +1814,32 @@ function ordinalSuffix(n) {
     ev.preventDefault();
     if (game.gameOver) return;
     if (game.mode === MODE_AI && game.current === AI_PLAYER) return;
+    if (game.mode === MODE_PVP) {
+      if (!Online.inRoom()) return;
+      const mySide = Online.mySide();
+      if (game.current !== (mySide === 1 ? HUMAN : AI_PLAYER)) return;
+    }
     const cell = getCellFromEvent(ev);
     if (!cell) return;
-    placeStone(cell.x, cell.y);
+    if (game.board[cell.y][cell.x] !== EMPTY) return;
+    game.pendingCell = cell;
+    draw();
+    try { playTap(); } catch {}
+  }
+
+  function commitPendingMove() {
+    const p = game.pendingCell;
+    if (!p || game.gameOver) return;
+    if (game.mode === MODE_AI && game.current === AI_PLAYER) return;
+    if (game.mode === MODE_PVP) {
+      const mySide = Online.mySide();
+      if (game.current !== (mySide === 1 ? HUMAN : AI_PLAYER)) return;
+      game.pendingCell = null;
+      Online.sendMove(p.x, p.y);
+      return;
+    }
+    game.pendingCell = null;
+    placeStone(p.x, p.y);
   }
 
   canvas.addEventListener('click', onBoardTap);
@@ -1892,7 +1994,7 @@ function ordinalSuffix(n) {
     // Order cells by quick heuristic evaluation to improve pruning
     cells.sort((a, b) => evaluateBoardAt(board, b.x, b.y, maximizing ? me : them)
                        - evaluateBoardAt(board, a.x, a.y, maximizing ? me : them));
-    const limited = cells.slice(0, 10);
+    const limited = cells.slice(0, depth >= 4 ? 14 : 10);
     if (!limited.length) return { score: evaluateWholeBoard(board, me) };
     let best = null;
     if (maximizing) {
@@ -1972,12 +2074,38 @@ function ordinalSuffix(n) {
       game.board[cell.y][cell.x] = EMPTY;
     }
 
-    // 3) difficulty-based selection
+    // 3) difficulty-based selection.  Level 30+ → unleash maximum strength.
+    const playerLv = levelFromXp(profile.xp).lv;
+    const beast = playerLv >= 30;
     let best = null;
-    if (settings.difficulty === AI_HARD) {
-      // Minimax depth 2 with heuristic ordering
-      const res = minimax(game.board, 2, -Infinity, Infinity, true, AI_PLAYER, HUMAN);
-      if (res && res.move) best = res.move;
+    if (beast || settings.difficulty === AI_HARD) {
+      // 3b) Look for a forcing double-threat (open-four / double-three) for AI
+      let bestForce = -Infinity, forceCell = null;
+      for (const cell of cells) {
+        game.board[cell.y][cell.x] = AI_PLAYER;
+        let s = 0;
+        for (const [dx, dy] of DIRS) s += linePower(game.board, cell.x, cell.y, dx, dy, AI_PLAYER);
+        // subtract best opponent reply to same cell
+        let oppMax = 0;
+        for (const [dx, dy] of DIRS) oppMax = Math.max(oppMax, linePower(game.board, cell.x, cell.y, dx, dy, HUMAN));
+        s += (7 - Math.abs(7 - cell.x) - Math.abs(7 - cell.y)) * 1.2;
+        game.board[cell.y][cell.x] = EMPTY;
+        if (s > bestForce) { bestForce = s; forceCell = cell; }
+      }
+      // 3c) Block the strongest human threat preemptively (open-three etc.)
+      let defMax = -Infinity, defCell = null;
+      for (const cell of cells) {
+        game.board[cell.y][cell.x] = HUMAN;
+        let s = 0;
+        for (const [dx, dy] of DIRS) s += linePower(game.board, cell.x, cell.y, dx, dy, HUMAN);
+        game.board[cell.y][cell.x] = EMPTY;
+        if (s > defMax) { defMax = s; defCell = cell; }
+      }
+      if (defMax >= 4000 && defCell) best = defCell;
+      const depth = beast ? 4 : 2;
+      const res = minimax(game.board, depth, -Infinity, Infinity, true, AI_PLAYER, HUMAN);
+      if (!best && res && res.move) best = res.move;
+      if (!best && forceCell) best = forceCell;
     }
     if (!best) {
       let bestScore = -Infinity;
@@ -2022,6 +2150,7 @@ function ordinalSuffix(n) {
         if (settings.difficulty === AI_EASY) profile.easyWins = (profile.easyWins || 0) + 1;
         else if (settings.difficulty === AI_NORMAL) profile.normalWins = (profile.normalWins || 0) + 1;
         else if (settings.difficulty === AI_HARD) profile.hardWins = (profile.hardWins || 0) + 1;
+        profile.aiWins = (profile.aiWins | 0) + 1;
         rewardStar = WIN_STAR_REWARDS[settings.difficulty] || 30;
         rewardXp = WIN_XP_REWARDS[settings.difficulty] || 20;
         profile.stars += rewardStar;
@@ -2057,6 +2186,7 @@ function ordinalSuffix(n) {
     updateDailyMissions(playerWon, game.mode === MODE_AI);
     checkAchievements();
     persist();
+    try { Online.pushLeader(); } catch {}
 
     // Modal
     $('#mr-title').textContent = playerWon ? '🏆 Win!' : (game.mode === MODE_AI ? '😵 Loss' : '🎉 Game Over');
@@ -2212,7 +2342,7 @@ function ordinalSuffix(n) {
     const rate = profile.totalGames ? Math.round(profile.totalWins / profile.totalGames * 100) : 0;
     $('#ps-rate').textContent = rate + '%';
     $('#lv-label').textContent = 'LV ' + lv.lv;
-    $('#lv-xp').textContent = lv.cur + ' / ' + lv.need + ' XP';
+    $('#lv-xp').textContent = lv.cur + ' / ' + lv.need + ' AI Wins';
     $('#lv-fill').style.width = Math.min(100, (lv.cur / lv.need) * 100) + '%';
 
     const body = $('#prof-body');
@@ -2520,8 +2650,23 @@ function ordinalSuffix(n) {
   $('#btn-edit-name').addEventListener('click', openNicknameDialog);
 
   // Game actions
+  $('#ga-place').addEventListener('click', () => { playTap(); commitPendingMove(); });
+  $('#btn-prof-settings').addEventListener('click', () => { playTap(); show('sc-settings'); });
   $('#ga-home').addEventListener('click', () => {
     playTap();
+    // Mid-game AI: confirm concede → counts as loss
+    if (game.mode === MODE_AI && !game.gameOver && game.history && game.history.length > 0) {
+      openConfirm(tr('concede_title') || 'Resign?', tr('concede_desc') || 'Leaving now will count as a loss.', () => {
+        if (game.timerHandle) clearInterval(game.timerHandle);
+        game.gameOver = true;
+        endGame(AI_PLAYER);
+        setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 50);
+      });
+      return;
+    }
+    if (game.mode === MODE_PVP && !game.gameOver) {
+      try { Online.leaveRoom(); } catch {}
+    }
     if (game.timerHandle) clearInterval(game.timerHandle);
     show('sc-home'); syncHome();
   });
@@ -2601,6 +2746,7 @@ function ordinalSuffix(n) {
     settings.language = t.dataset.lang;
     $$('#seg-lang button').forEach(b => b.classList.toggle('on', b === t));
     persist();
+    applyI18n();
     toast('Language: ' + t.dataset.lang.toUpperCase());
   });
 
@@ -2611,6 +2757,8 @@ function ordinalSuffix(n) {
     $$('#seg-mark button').forEach(b => b.classList.toggle('on', (b.dataset.m === '1') === !!settings.showMark));
     $$('#seg-coord button').forEach(b => b.classList.toggle('on', (b.dataset.c === '1') === !!settings.showCoord));
     $$('#seg-vib button').forEach(b => b.classList.toggle('on', (b.dataset.v === '1') === !!settings.vibrate));
+    $$('#seg-lang button').forEach(b => b.classList.toggle('on', b.dataset.lang === (settings.language || 'en')));
+    applyI18n();
   }
 
   // Reset
@@ -2933,13 +3081,29 @@ function ordinalSuffix(n) {
             game.board[y][x] = v.board[y * BOARD_SIZE + x] | 0;
       }
       game.current = (v.turn === 1) ? HUMAN : AI_PLAYER;
+      // Rebuild history list from board so winning-line checks work
+      game.history = [];
+      for (let y = 0; y < BOARD_SIZE; y++)
+        for (let x = 0; x < BOARD_SIZE; x++)
+          if (game.board[y][x]) game.history.push({ x, y, c: game.board[y][x] });
       if (v.winner && !game.gameOver) {
         game.gameOver = true;
         game.winner = v.winner;
+        // Try to compute a win-line for visual feedback
+        try {
+          outer: for (let y = 0; y < BOARD_SIZE; y++)
+            for (let x = 0; x < BOARD_SIZE; x++)
+              if (game.board[y][x] === v.winner) {
+                const line = getWinningLine(x, y, v.winner);
+                if (line) { game.winLine = line; break outer; }
+              }
+        } catch {}
       }
-      const nameEl = document.getElementById('name-w');
-      if (nameEl) nameEl.textContent = (currentRoom.role === 'host' ? (v.guestName || 'Waiting…') : (v.hostName || 'Host'));
-      try { draw(); } catch {}
+      const nameB = document.getElementById('name-b');
+      const nameW = document.getElementById('name-w');
+      if (nameB) nameB.textContent = (currentRoom.role === 'host' ? (v.hostName || 'You') : (v.hostName || 'Host'));
+      if (nameW) nameW.textContent = (currentRoom.role === 'host' ? (v.guestName || 'Waiting…') : (v.guestName || 'You'));
+      try { updateTurnDisplay(); updateMatchInfo(); draw(); } catch {}
     }
 
     async function sendMove(x, y) {
