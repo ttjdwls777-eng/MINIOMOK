@@ -1580,7 +1580,8 @@ function ordinalSuffix(n) {
       setTimeout(() => beep(f, 0.22, 'sawtooth', 0.08), i * 120);
     });
   }
-  function playTap() { beep(700, 0.03, 'square', 0.04); }
+  function playTap() { beep(780, 0.05, 'square', 0.22); }
+  function playStone() { beep(440, 0.06, 'triangle', 0.22); setTimeout(()=>beep(660,0.05,'sine',0.18),30); }
   function playCoin() { beep(1040, 0.08, 'sine', 0.12); setTimeout(() => beep(1380, 0.1, 'sine', 0.1), 70); }
 
   function vibrate(ms) {
@@ -3268,9 +3269,18 @@ function ordinalSuffix(n) {
         requestAnimationFrame(() => { resize(); newGame(); });
       }
       if (Array.isArray(v.board) && v.board.length === BOARD_SIZE * BOARD_SIZE) {
+        let prevCount = 0;
+        for (let y = 0; y < BOARD_SIZE; y++)
+          for (let x = 0; x < BOARD_SIZE; x++)
+            if (game.board[y][x]) prevCount++;
         for (let y = 0; y < BOARD_SIZE; y++)
           for (let x = 0; x < BOARD_SIZE; x++)
             game.board[y][x] = v.board[y * BOARD_SIZE + x] | 0;
+        let newCount = 0;
+        for (let y = 0; y < BOARD_SIZE; y++)
+          for (let x = 0; x < BOARD_SIZE; x++)
+            if (game.board[y][x]) newCount++;
+        if (newCount > prevCount) { try { playStone(); vibrate(12); } catch {} }
       }
       const prevTurn = game.current;
       game.current = (v.turn === 1) ? HUMAN : AI_PLAYER;
@@ -3703,6 +3713,16 @@ function ordinalSuffix(n) {
         window.addEventListener('load', hideBar);
         window.addEventListener('orientationchange', () => setTimeout(hideBar, 300));
       }catch{}
+    })();
+    (function globalTapSound(){
+      const handler = (e) => {
+        try {
+          const t = e.target;
+          if (t && t.tagName === 'CANVAS') return;
+          playTap();
+        } catch {}
+      };
+      document.addEventListener('pointerdown', handler, true);
     })();
     seedBotsIfNeeded();
     persist();
