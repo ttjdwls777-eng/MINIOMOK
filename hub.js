@@ -2357,6 +2357,12 @@ function ordinalSuffix(n) {
           // Host stays in a fresh waiting room so a new challenger can join
           Online.recycleRoom && Online.recycleRoom();
           $('#modal-result').classList.remove('active');
+          game.gameOver = false;
+          game.winLine = null;
+          game.history = [];
+          game.mode = null;
+          show('sc-home');
+          syncHome();
           openWaitingScreen(room.id, Online.wager() | 0, null, (room.state && room.state.title) || '');
         } else {
           // Loser / guest leaves the room and goes home
