@@ -2203,24 +2203,22 @@ function ordinalSuffix(n) {
         else if (settings.difficulty === AI_NORMAL) profile.normalWins = (profile.normalWins || 0) + 1;
         else if (settings.difficulty === AI_HARD) profile.hardWins = (profile.hardWins || 0) + 1;
         profile.aiWins = (profile.aiWins | 0) + 1;
-        rewardStar = WIN_STAR_REWARDS[settings.difficulty] || 30;
-        rewardXp = WIN_XP_REWARDS[settings.difficulty] || 20;
+        rewardStar = 100; // fixed 100⭐ for an AI win
+        rewardXp = 20;
         profile.stars += rewardStar;
         profile.xp += rewardXp;
         playWin();
         confettiBurst(70);
       } else {
+        // AI loss / resign → no penalty, no reward
         profile.totalLosses++;
         profile.currentStreak = 0;
         profile.weeklyGames++;
-        rewardXp = LOSS_XP;
-        profile.xp += rewardXp;
         playLose();
       }
     } else {
       profile.weeklyGames++;
-      playWin();
-      confettiBurst(40);
+      if (playerWon) { playWin(); confettiBurst(40); } else { playLose(); }
     }
 
     // history entry
@@ -2241,10 +2239,10 @@ function ordinalSuffix(n) {
     try { Online.pushLeader(); } catch {}
 
     // Modal
-    $('#mr-title').textContent = playerWon ? '🏆 Win!' : (game.mode === MODE_AI ? '😵 Loss' : '🎉 Game Over');
+    $('#mr-title').textContent = playerWon ? '🏆 VICTORY!' : '💀 LOSS';
     $('#mr-desc').textContent = game.mode === MODE_AI
       ? (playerWon ? 'AI defeated!' : 'AI won')
-      : (winner === HUMAN ? 'Black (Player 1) wins' : 'White (Player 2) wins');
+      : (winner === HUMAN ? 'You won' : 'You lost');
     const rewardsEl = $('#mr-rewards');
     if (game.mode === MODE_AI && playerWon) {
       rewardsEl.classList.remove('hidden');
@@ -2267,6 +2265,68 @@ function ordinalSuffix(n) {
     $('#mr-rewards').classList.add('hidden');
     $('#modal-result').classList.add('active');
     syncHome();
+  }
+
+  // Finalize a PvP online match on both phones.  Called from the room listener
+  // whenever Firebase flips the room to finished/resigned status.
+  function finishPvpGame(winnerSide) {
+    if (!currentRoomRef()) return;
+    const room = currentRoomRef();
+    if (room._finalized) return;
+    room._finalized = true;
+    if (game.timerHandle) { clearInterval(game.timerHandle); game.timerHandle = null; }
+    const mySide = Online.mySide();
+    const wager = Online.wager() | 0;
+    const iWon = (winnerSide === mySide);
+    profile.totalGames++;
+    profile.weeklyGames++;
+    let delta = 0;
+    if (iWon) {
+      delta = Math.floor(wager * 0.85);
+      profile.stars += delta;
+      profile.totalWins++;
+      profile.weeklyWins++;
+      profile.currentStreak++;
+      profile.bestStreak = Math.max(profile.bestStreak, profile.currentStreak);
+      playWin(); confettiBurst(70);
+    } else {
+      delta = -wager;
+      profile.stars = Math.max(0, (profile.stars | 0) + delta);
+      profile.totalLosses++;
+      profile.currentStreak = 0;
+      playLose();
+    }
+    history.unshift({
+      at: Date.now(), mode: MODE_PVP, difficulty: settings.difficulty,
+      winner: winnerSide === 1 ? HUMAN : AI_PLAYER,
+      result: iWon ? 'win' : 'lose',
+      moves: game.history.length,
+      duration: Math.floor((Date.now() - game.startedAt) / 1000),
+      star: delta, xp: 0,
+    });
+    persist();
+    try { Online.pushLeader(); } catch {}
+    game.gameOver = true;
+    draw();
+    $('#mr-title').textContent = iWon ? '🏆 VICTORY!' : '💀 LOSS';
+    $('#mr-desc').textContent = iWon
+      ? ('You won ' + (wager ? ('+' + delta.toLocaleString() + '⭐') : ''))
+      : ('You lost ' + (wager ? (delta.toLocaleString() + '⭐') : ''));
+    const rewardsEl = $('#mr-rewards');
+    if (wager) {
+      rewardsEl.classList.remove('hidden');
+      $('#mr-stars').textContent = (iWon ? '+' : '') + delta.toLocaleString() + '⭐';
+      $('#mr-xp').textContent = (iWon ? '+85%' : '−100%') + ' wager';
+    } else {
+      rewardsEl.classList.add('hidden');
+    }
+    $('#modal-result').classList.add('active');
+    syncHome();
+    // Tear down room after a beat so both phones receive the finished state first
+    setTimeout(() => { try { Online.leaveRoom(); } catch {} }, 1200);
+  }
+  function currentRoomRef() {
+    try { return Online._room && Online._room(); } catch { return null; }
   }
 
   /* ═════════════════════════════════════════════════════════════════════════
@@ -2633,9 +2693,9 @@ function ordinalSuffix(n) {
     if (gs && gs.classList.contains('active') && !game.gameOver) {
       e.preventDefault(); e.stopPropagation();
       openConfirm(tr('concede_title'), tr('concede_desc'), () => {
+        if (game.mode === MODE_PVP) { try { Online.resign(); } catch {} return; }
         if (game.timerHandle) clearInterval(game.timerHandle);
-        if (game.mode === MODE_PVP) { try { Online.leaveRoom(); } catch {} game.gameOver = true; }
-        else { game.gameOver = true; endGame(AI_PLAYER); }
+        game.gameOver = true; endGame(AI_PLAYER);
         setTimeout(() => { $('#modal-result').classList.remove('active'); show('sc-home'); syncHome(); }, 50);
       });
       return;
@@ -2723,15 +2783,16 @@ function ordinalSuffix(n) {
   }
   function resignFlow(onDone) {
     openConfirm(tr('concede_title'), tr('concede_desc'), () => {
-      if (game.timerHandle) clearInterval(game.timerHandle);
       if (game.mode === MODE_PVP) {
-        try { Online.leaveRoom(); } catch {}
-        game.gameOver = true;
+        // Let Firebase flip winner → both phones receive finishPvpGame
+        try { Online.resign(); } catch {}
+        // Local onDone should NOT auto-navigate; the loss modal will show
       } else {
+        if (game.timerHandle) clearInterval(game.timerHandle);
         game.gameOver = true;
         endGame(AI_PLAYER);
+        if (onDone) onDone();
       }
-      if (onDone) onDone();
     });
   }
   $('#ga-resign').addEventListener('click', () => {
@@ -3175,6 +3236,7 @@ function ordinalSuffix(n) {
       if (v.winner && !game.gameOver) {
         game.gameOver = true;
         game.winner = v.winner;
+        try { finishPvpGame(v.winner); } catch (e) { console.warn(e); }
         // Try to compute a win-line for visual feedback
         try {
           outer: for (let y = 0; y < BOARD_SIZE; y++)
@@ -3249,6 +3311,42 @@ function ordinalSuffix(n) {
       } catch (e) { console.warn('startMatch failed', e); }
     }
 
+    // Incoming-challenge subscription.  A host can create a targeted room and
+    // this listener lets the target get an instant "challenge incoming" popup.
+    let _challengeRef = null, _challengeCb = null, _seenChallenges = {};
+    function startChallengeListener(onIncoming) {
+      const d = ready(); if (!d || !profile || !profile.id) return;
+      stopChallengeListener();
+      _challengeRef = d.ref(ROOMS_PATH);
+      _challengeCb = snap => {
+        const v = snap.val(); if (!v) return;
+        if (v.targetId !== profile.id) return;
+        if (v.status !== 'waiting') return;
+        if (_seenChallenges[v.code || snap.key]) return;
+        _seenChallenges[v.code || snap.key] = true;
+        try { onIncoming && onIncoming(v); } catch {}
+      };
+      _challengeRef.on('child_added', _challengeCb);
+    }
+    function stopChallengeListener() {
+      if (_challengeRef && _challengeCb) { try { _challengeRef.off('child_added', _challengeCb); } catch {} }
+      _challengeRef = null; _challengeCb = null;
+    }
+
+    async function resignRoom() {
+      const d = ready();
+      if (!d || !currentRoom) return;
+      try {
+        const opponent = currentRoom.mySide === 1 ? 2 : 1;
+        await d.ref(ROOMS_PATH + '/' + currentRoom.id).update({
+          winner: opponent,
+          status: 'finished',
+          resignedBy: currentRoom.mySide,
+          updatedAt: Date.now(),
+        });
+      } catch (e) { console.warn('resignRoom failed', e); }
+    }
+
     function leaveRoom(silent) {
       roomListeners.forEach(l => { try { l.ref.off('value', l.cb); } catch {} });
       roomListeners = [];
@@ -3263,7 +3361,9 @@ function ordinalSuffix(n) {
       registerPresence, touchPresence, fetchPresence,
       fetchOpenRooms, createRoom, joinRoom, cancelRoom,
       setGuestReady, startMatch,
-      sendMove, leaveRoom,
+      sendMove, leaveRoom, resign: resignRoom,
+      startChallengeListener, stopChallengeListener,
+      _room: () => currentRoom,
       inRoom: () => !!currentRoom,
       mySide: () => currentRoom ? currentRoom.mySide : 0,
       wager: () => currentRoom ? (currentRoom.wager | 0) : 0,
@@ -3530,6 +3630,20 @@ function ordinalSuffix(n) {
       if (!Online.ready()) { setTimeout(onlineBoot, 800); return; }
       Online.pushLeader();
       Online.registerPresence();
+      Online.startChallengeListener(v => {
+        // Ignore if we're already in a game/room
+        if (Online.inRoom()) return;
+        const gs = $('#sc-game');
+        if (gs && gs.classList.contains('active') && !game.gameOver) return;
+        openConfirm(
+          '⚔️ Challenge Incoming',
+          (v.hostName || 'Someone') + ' challenges you · ⭐ ' + Number(v.wager || 0).toLocaleString() + ' wager',
+          async () => {
+            const ok = await Online.joinRoom(v.code);
+            if (!ok) toast('Could not join challenge');
+          }
+        );
+      });
       refreshCloudRanks();
       setInterval(() => { Online.touchPresence(); }, 30000);
       setInterval(refreshCloudRanks, 60000);
