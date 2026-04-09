@@ -1051,8 +1051,8 @@ function ordinalSuffix(n) {
       </div>
       <div class="tabs">
         <button class="tab on" data-tab="total">Total Rank</button>
-        <button class="tab" data-tab="weekly">Weekly TOP</button>
-        <button class="tab" data-tab="prev">Last Week</button>
+        <button class="tab" data-tab="weekly">Weekly TOP 7</button>
+        <button class="tab" data-tab="prev">Last Week TOP 7</button>
         <button class="tab" data-tab="hard">Hard King</button>
       </div>
       <div id="rank-reset-info" style="text-align:center;font-size:11px;color:rgba(255,255,255,.78);margin:4px 0 6px;font-weight:700"></div>
@@ -2645,11 +2645,13 @@ function ordinalSuffix(n) {
     if (rankTab === 'weekly') {
       list = filtered
         .filter(r => r.weeklyKey === wk && (r.weeklyWins || 0) > 0)
-        .sort((a, b) => (b.weeklyWins || 0) - (a.weeklyWins || 0));
+        .sort((a, b) => (b.weeklyWins || 0) - (a.weeklyWins || 0))
+        .slice(0, 7);
     } else if (rankTab === 'prev') {
       list = filtered
         .filter(r => (r.prevWeekTotalWins || 0) > 0)
-        .sort((a, b) => (b.prevWeekTotalWins || 0) - (a.prevWeekTotalWins || 0));
+        .sort((a, b) => (b.prevWeekTotalWins || 0) - (a.prevWeekTotalWins || 0))
+        .slice(0, 7);
     } else if (rankTab === 'hard') {
       list = filtered
         .filter(r => (r.hardWins || 0) > 0)
